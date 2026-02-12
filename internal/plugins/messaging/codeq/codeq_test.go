@@ -271,6 +271,158 @@ func TestHTTPProviderPublishResultRequiresMapping(t *testing.T) {
 	}
 }
 
+func TestHTTPProviderConsumeTopicSendsWorkerID(t *testing.T) {
+	type queueTask struct {
+		ID      string
+		Command string
+		Payload string
+	}
+
+	var (
+		mu            sync.Mutex
+		counter       int
+		tasksByID     = map[string]queueTask{}
+		tasksByCmd    = map[string][]string{}
+		claimSeen     claimTaskRequest
+		producerToken = "producer-token"
+		workerToken   = "worker-token"
+	)
+
+	nextID := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		counter++
+		return "task-" + strings.TrimSpace(time.Unix(int64(counter), 0).UTC().Format("150405"))
+	}
+
+	popTask := func(command string) (queueTask, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		ids := tasksByCmd[command]
+		if len(ids) == 0 {
+			return queueTask{}, false
+		}
+		id := ids[0]
+		tasksByCmd[command] = ids[1:]
+		task, ok := tasksByID[id]
+		return task, ok
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/codeq/tasks":
+			if r.Header.Get("Authorization") != "Bearer "+producerToken {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"bad token"}`))
+				return
+			}
+			var req createTaskRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			rawPayload, _ := json.Marshal(req.Payload)
+			id := nextID()
+			task := queueTask{ID: id, Command: req.Command, Payload: string(rawPayload)}
+			mu.Lock()
+			tasksByID[id] = task
+			tasksByCmd[req.Command] = append(tasksByCmd[req.Command], id)
+			mu.Unlock()
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":      task.ID,
+				"command": task.Command,
+				"payload": task.Payload,
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/codeq/tasks/claim":
+			if r.Header.Get("Authorization") != "Bearer "+workerToken {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"bad token"}`))
+				return
+			}
+			var req claimTaskRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if strings.TrimSpace(req.WorkerID) == "" {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"error":"workerId is required"}`))
+				return
+			}
+			mu.Lock()
+			claimSeen = req
+			mu.Unlock()
+			if len(req.Commands) == 0 {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			task, ok := popTask(req.Commands[0])
+			if !ok {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":      task.ID,
+				"command": task.Command,
+				"payload": task.Payload,
+			})
+		case strings.HasPrefix(r.URL.Path, "/v1/codeq/tasks/") && strings.HasSuffix(r.URL.Path, "/result") && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
+		case strings.HasPrefix(r.URL.Path, "/v1/codeq/tasks/") && strings.HasSuffix(r.URL.Path, "/nack"):
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "requeued"})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"error":"not found"}`)
+		}
+	}))
+	defer server.Close()
+
+	cfg := config.Config{}
+	cfg.Plugins.Messaging.CodeQ.BaseURL = server.URL
+	cfg.Plugins.Messaging.CodeQ.ProducerToken = producerToken
+	cfg.Plugins.Messaging.CodeQ.WorkerToken = workerToken
+	cfg.Plugins.Messaging.CodeQ.Topics.Invoke = "cs.invoke"
+	cfg.Plugins.Messaging.CodeQ.Topics.Results = "cs.results"
+
+	p, err := NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	provider := p.(*HTTPProvider)
+
+	if err := provider.Publish(context.Background(), "custom.topic", "t_1", "custom", map[string]any{"ok": true}); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	var handled int
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	err = provider.ConsumeTopic(ctx, "custom.topic", "group-A", func(env messaging.Envelope) error {
+		handled++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ConsumeTopic: %v", err)
+	}
+	if handled != 1 {
+		t.Fatalf("expected handler once, got %d", handled)
+	}
+
+	mu.Lock()
+	seen := claimSeen
+	mu.Unlock()
+	if strings.TrimSpace(seen.WorkerID) == "" {
+		t.Fatal("expected claim to send workerId")
+	}
+	if !strings.Contains(seen.WorkerID, "::group-A") {
+		t.Fatalf("expected workerId to include group suffix, got %q", seen.WorkerID)
+	}
+}
+
 func TestConsumeMappingsUseWrapper(t *testing.T) {
 	// compile-time interface checks + signatures sanity
 	var _ messaging.Provider = &HTTPProvider{}

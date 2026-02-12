@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +31,7 @@ type HTTPProvider struct {
 	baseURL       string
 	producerToken string
 	workerToken   string
+	workerID      string
 	client        *http.Client
 
 	invokeCommand    string
@@ -51,6 +54,7 @@ type claimTaskRequest struct {
 	Commands     []string `json:"commands,omitempty"`
 	LeaseSeconds int      `json:"leaseSeconds,omitempty"`
 	WaitSeconds  int      `json:"waitSeconds,omitempty"`
+	WorkerID     string   `json:"workerId,omitempty"`
 }
 
 type submitResultRequest struct {
@@ -96,6 +100,7 @@ func NewHTTPProviderFromConfig(cfg config.Config) (*HTTPProvider, error) {
 		baseURL:          normalizeBaseURL(baseURL),
 		producerToken:    producerToken,
 		workerToken:      workerToken,
+		workerID:         defaultWorkerID(),
 		client:           &http.Client{Timeout: 15 * time.Second},
 		invokeCommand:    topics.Invoke,
 		resultsCommand:   topics.Results,
@@ -114,6 +119,19 @@ func normalizeBaseURL(raw string) string {
 		return strings.TrimRight(trimmed, "/")
 	}
 	return "http://" + strings.TrimRight(trimmed, "/")
+}
+
+func defaultWorkerID() string {
+	host, err := os.Hostname()
+	if err != nil || strings.TrimSpace(host) == "" {
+		host = "unknown-host"
+	}
+	return strings.Join([]string{
+		"sous",
+		host,
+		strconv.Itoa(os.Getpid()),
+		uuid.NewString(),
+	}, "-")
 }
 
 func (p *HTTPProvider) Close() error {
@@ -193,9 +211,8 @@ func (p *HTTPProvider) PublishDLQResult(ctx context.Context, tenant string, resu
 }
 
 func (p *HTTPProvider) ConsumeInvocations(ctx context.Context, groupID string, handler func(messaging.Envelope, api.InvocationRequest) error) error {
-	_ = groupID
 	for {
-		task, ok, err := p.claimTask(ctx, p.invokeCommand)
+		task, ok, err := p.claimTask(ctx, p.invokeCommand, groupID)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -225,8 +242,7 @@ func (p *HTTPProvider) ConsumeInvocations(ctx context.Context, groupID string, h
 }
 
 func (p *HTTPProvider) ConsumeResults(ctx context.Context, groupID string, handler func(messaging.Envelope, api.InvocationResult) error) error {
-	_ = groupID
-	return p.consumeTopicTasks(ctx, p.resultsCommand, func(task codeQTask, env messaging.Envelope) error {
+	return p.consumeTopicTasks(ctx, p.resultsCommand, groupID, func(task codeQTask, env messaging.Envelope) error {
 		var out api.InvocationResult
 		if err := json.Unmarshal(env.Body, &out); err != nil {
 			return err
@@ -236,8 +252,7 @@ func (p *HTTPProvider) ConsumeResults(ctx context.Context, groupID string, handl
 }
 
 func (p *HTTPProvider) ConsumeTopic(ctx context.Context, topic, groupID string, handler func(messaging.Envelope) error) error {
-	_ = groupID
-	return p.consumeTopicTasks(ctx, topic, func(task codeQTask, env messaging.Envelope) error {
+	return p.consumeTopicTasks(ctx, topic, groupID, func(task codeQTask, env messaging.Envelope) error {
 		return handler(env)
 	})
 }
@@ -266,9 +281,9 @@ func (p *HTTPProvider) WaitForResult(ctx context.Context, requestID string) (api
 	}
 }
 
-func (p *HTTPProvider) consumeTopicTasks(ctx context.Context, command string, handler func(codeQTask, messaging.Envelope) error) error {
+func (p *HTTPProvider) consumeTopicTasks(ctx context.Context, command, groupID string, handler func(codeQTask, messaging.Envelope) error) error {
 	for {
-		task, ok, err := p.claimTask(ctx, command)
+		task, ok, err := p.claimTask(ctx, command, groupID)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -342,11 +357,19 @@ func (p *HTTPProvider) enqueue(ctx context.Context, token, command string, paylo
 	return out.ID, nil
 }
 
-func (p *HTTPProvider) claimTask(ctx context.Context, command string) (codeQTask, bool, error) {
+func (p *HTTPProvider) claimTask(ctx context.Context, command, groupID string) (codeQTask, bool, error) {
+	workerID := strings.TrimSpace(p.workerID)
+	if workerID == "" {
+		workerID = defaultWorkerID()
+	}
+	if trimmedGroup := strings.TrimSpace(groupID); trimmedGroup != "" {
+		workerID = workerID + "::" + trimmedGroup
+	}
 	req := claimTaskRequest{
 		Commands:     []string{command},
 		LeaseSeconds: defaultClaimLeaseSeconds,
 		WaitSeconds:  defaultClaimWaitSeconds,
+		WorkerID:     workerID,
 	}
 	status, body, err := p.doJSON(ctx, p.workerToken, http.MethodPost, "/v1/codeq/tasks/claim", req)
 	if err != nil {
