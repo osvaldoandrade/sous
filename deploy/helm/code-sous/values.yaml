@@ -40,7 +40,10 @@ config: |
     messaging:
       driver: codeq
       codeq:
-        brokers: ["codeq:9092"]
+        base_url: "http://codeq.default.svc.cluster.local:80"
+        producer_token: ""
+        worker_token: ""
+        brokers: []
         topics:
           invoke: cs.invoke
           results: cs.results
@@ -53,7 +56,10 @@ config: |
       mode: none
       password: ""
   codeq:
-    brokers: ["codeq:9092"]
+    base_url: "http://codeq.default.svc.cluster.local:80"
+    producer_token: ""
+    worker_token: ""
+    brokers: []
     topics:
       invoke: cs.invoke
       results: cs.results

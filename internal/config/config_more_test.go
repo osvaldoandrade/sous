@@ -48,7 +48,15 @@ func TestValidateBranches(t *testing.T) {
 		{"unsupported persistence", func(c *Config) { c.Plugins.Persistence.Driver = "x" }, "unsupported persistence plugin driver"},
 		{"missing kv addr", func(c *Config) { c.Plugins.Persistence.KVRocks.Addr = "" }, "plugins.persistence.kvrocks.addr is required"},
 		{"unsupported messaging", func(c *Config) { c.Plugins.Messaging.Driver = "x" }, "unsupported messaging plugin driver"},
-		{"missing brokers", func(c *Config) { c.Plugins.Messaging.CodeQ.Brokers = nil }, "plugins.messaging.codeq.brokers is required"},
+		{"missing transport", func(c *Config) {
+			c.Plugins.Messaging.CodeQ.Brokers = nil
+			c.Plugins.Messaging.CodeQ.BaseURL = ""
+		}, "plugins.messaging.codeq.base_url or plugins.messaging.codeq.brokers is required"},
+		{"missing producer token on http mode", func(c *Config) {
+			c.Plugins.Messaging.CodeQ.BaseURL = "http://codeq:8080"
+			c.Plugins.Messaging.CodeQ.Brokers = nil
+			c.Plugins.Messaging.CodeQ.ProducerToken = ""
+		}, "plugins.messaging.codeq.producer_token is required when plugins.messaging.codeq.base_url is set"},
 		{"missing topics", func(c *Config) { c.Plugins.Messaging.CodeQ.Topics.Invoke = "" }, "plugins.messaging.codeq.topics.invoke and results are required"},
 		{"missing cs_control addr", func(c *Config) { c.CSControl.HTTP.Addr = "" }, "cs_control.http.addr is required"},
 		{"missing cs_http_gateway addr", func(c *Config) { c.CSHTTPGateway.HTTP.Addr = "" }, "cs_http_gateway.http.addr is required"},
@@ -90,6 +98,9 @@ func TestOverrideEnvAndSyncPluginConfig(t *testing.T) {
 	t.Setenv("CS_KVROCKS_ADDR", "127.0.0.1:6666")
 	t.Setenv("CS_KVROCKS_PASSWORD", "secret")
 	t.Setenv("CS_CODEQ_BROKERS", "b2, b3")
+	t.Setenv("CS_CODEQ_BASE_URL", "http://codeq.internal:8080")
+	t.Setenv("CS_CODEQ_PRODUCER_TOKEN", "producer_tok")
+	t.Setenv("CS_CODEQ_WORKER_TOKEN", "worker_tok")
 	t.Setenv("CS_TIKTI_INTROSPECTION_URL", "https://tikti.example.com/introspect")
 	t.Setenv("CS_TIKTI_API_KEY", "tikti_api_key_env")
 	t.Setenv("CS_TIKTI_CACHE_TTL_SECONDS", "90")
@@ -106,6 +117,15 @@ func TestOverrideEnvAndSyncPluginConfig(t *testing.T) {
 	}
 	if len(cfg.CodeQ.Brokers) != 2 || cfg.CodeQ.Brokers[0] != "b2" || len(cfg.Plugins.Messaging.CodeQ.Brokers) != 2 {
 		t.Fatalf("unexpected brokers override: %+v %+v", cfg.CodeQ.Brokers, cfg.Plugins.Messaging.CodeQ.Brokers)
+	}
+	if cfg.CodeQ.BaseURL != "http://codeq.internal:8080" || cfg.Plugins.Messaging.CodeQ.BaseURL != "http://codeq.internal:8080" {
+		t.Fatalf("unexpected codeq base url override: %+v %+v", cfg.CodeQ, cfg.Plugins.Messaging.CodeQ)
+	}
+	if cfg.CodeQ.ProducerToken != "producer_tok" || cfg.Plugins.Messaging.CodeQ.ProducerToken != "producer_tok" {
+		t.Fatalf("unexpected codeq producer token override: %+v %+v", cfg.CodeQ, cfg.Plugins.Messaging.CodeQ)
+	}
+	if cfg.CodeQ.WorkerToken != "worker_tok" || cfg.Plugins.Messaging.CodeQ.WorkerToken != "worker_tok" {
+		t.Fatalf("unexpected codeq worker token override: %+v %+v", cfg.CodeQ, cfg.Plugins.Messaging.CodeQ)
 	}
 	if cfg.Tikti.IntrospectionURL == "" || cfg.Plugins.AuthN.Tikti.IntrospectionURL == "" {
 		t.Fatalf("unexpected tikti override: %+v %+v", cfg.Tikti, cfg.Plugins.AuthN.Tikti)
@@ -137,6 +157,8 @@ func TestOverrideEnvAndSyncPluginConfig(t *testing.T) {
 	cfg.KVRocks.Auth.Mode = "none"
 	cfg.KVRocks.Auth.Password = "pw"
 	cfg.CodeQ.Brokers = []string{"codeq:9092"}
+	cfg.CodeQ.BaseURL = "http://codeq.internal:8080"
+	cfg.CodeQ.ProducerToken = "producer_tok"
 	cfg.CodeQ.Topics.Invoke = "cs.invoke"
 	cfg.CodeQ.Topics.Results = "cs.results"
 	cfg.CodeQ.Topics.DLQInvoke = "cs.dlq.invoke"
@@ -148,6 +170,12 @@ func TestOverrideEnvAndSyncPluginConfig(t *testing.T) {
 	}
 	if cfg.Plugins.AuthN.Tikti.IntrospectionURL == "" || cfg.Plugins.Persistence.KVRocks.Addr == "" || len(cfg.Plugins.Messaging.CodeQ.Brokers) == 0 {
 		t.Fatalf("plugin hydration failed: %+v", cfg.Plugins)
+	}
+	if cfg.Plugins.Messaging.CodeQ.BaseURL != "http://codeq.internal:8080" || cfg.Plugins.Messaging.CodeQ.ProducerToken != "producer_tok" {
+		t.Fatalf("unexpected codeq hydration: %+v", cfg.Plugins.Messaging.CodeQ)
+	}
+	if cfg.Plugins.Messaging.CodeQ.WorkerToken != "producer_tok" {
+		t.Fatalf("expected worker token fallback to producer token, got %+v", cfg.Plugins.Messaging.CodeQ)
 	}
 	if cfg.Plugins.AuthN.Tikti.APIKey != "tikti_key_from_legacy" || cfg.Tikti.APIKey != "tikti_key_from_legacy" {
 		t.Fatalf("unexpected tikti api key hydration: %+v %+v", cfg.Tikti, cfg.Plugins.AuthN.Tikti)

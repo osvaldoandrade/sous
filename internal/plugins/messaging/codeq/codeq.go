@@ -3,6 +3,7 @@ package codeq
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/osvaldoandrade/sous/internal/api"
 	internalcodeq "github.com/osvaldoandrade/sous/internal/codeq"
@@ -20,6 +21,10 @@ func init() {
 }
 
 func NewFromConfig(cfg config.Config) (messaging.Provider, error) {
+	if strings.TrimSpace(cfg.Plugins.Messaging.CodeQ.BaseURL) != "" {
+		return NewHTTPProviderFromConfig(cfg)
+	}
+
 	brokers := cfg.Plugins.Messaging.CodeQ.Brokers
 	if len(brokers) == 0 {
 		return nil, fmt.Errorf("plugins.messaging.codeq.brokers is required")

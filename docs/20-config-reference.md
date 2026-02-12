@@ -25,7 +25,10 @@ plugins:
   messaging:
     driver: codeq
     codeq:
-      brokers: ["codeq:9092"]
+      base_url: "http://codeq.default.svc.cluster.local:80"
+      producer_token: "<ACCESS_TOKEN>"
+      worker_token: "<WORKER_TOKEN>" # optional; defaults to producer_token
+      brokers: [] # optional legacy mode
       topics:
         invoke: cs.invoke
         results: cs.results
@@ -40,7 +43,10 @@ kvrocks:
     password: ""
 
 codeq:
-  brokers: ["codeq:9092"]
+  base_url: "http://codeq.default.svc.cluster.local:80"
+  producer_token: "<ACCESS_TOKEN>"
+  worker_token: "<WORKER_TOKEN>"
+  brokers: []
   topics:
     invoke: cs.invoke
     results: cs.results

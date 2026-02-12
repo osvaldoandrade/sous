@@ -24,8 +24,11 @@ type Config struct {
 	} `yaml:"kvrocks"`
 
 	CodeQ struct {
-		Brokers []string `yaml:"brokers"`
-		Topics  struct {
+		BaseURL       string   `yaml:"base_url"`
+		ProducerToken string   `yaml:"producer_token"`
+		WorkerToken   string   `yaml:"worker_token"`
+		Brokers       []string `yaml:"brokers"`
+		Topics        struct {
 			Invoke    string `yaml:"invoke"`
 			Results   string `yaml:"results"`
 			DLQInvoke string `yaml:"dlq_invoke"`
@@ -61,8 +64,11 @@ type Config struct {
 		Messaging struct {
 			Driver string `yaml:"driver"`
 			CodeQ  struct {
-				Brokers []string `yaml:"brokers"`
-				Topics  struct {
+				BaseURL       string   `yaml:"base_url"`
+				ProducerToken string   `yaml:"producer_token"`
+				WorkerToken   string   `yaml:"worker_token"`
+				Brokers       []string `yaml:"brokers"`
+				Topics        struct {
 					Invoke    string `yaml:"invoke"`
 					Results   string `yaml:"results"`
 					DLQInvoke string `yaml:"dlq_invoke"`
@@ -184,6 +190,18 @@ func overrideEnv(cfg *Config) {
 			}
 		}
 	}
+	if v := os.Getenv("CS_CODEQ_BASE_URL"); v != "" {
+		cfg.CodeQ.BaseURL = v
+		cfg.Plugins.Messaging.CodeQ.BaseURL = v
+	}
+	if v := os.Getenv("CS_CODEQ_PRODUCER_TOKEN"); v != "" {
+		cfg.CodeQ.ProducerToken = v
+		cfg.Plugins.Messaging.CodeQ.ProducerToken = v
+	}
+	if v := os.Getenv("CS_CODEQ_WORKER_TOKEN"); v != "" {
+		cfg.CodeQ.WorkerToken = v
+		cfg.Plugins.Messaging.CodeQ.WorkerToken = v
+	}
 	if v := os.Getenv("CS_TIKTI_INTROSPECTION_URL"); v != "" {
 		cfg.Tikti.IntrospectionURL = v
 		cfg.Plugins.AuthN.Tikti.IntrospectionURL = v
@@ -234,6 +252,19 @@ func syncPluginConfig(cfg *Config) {
 	if len(cfg.Plugins.Messaging.CodeQ.Brokers) == 0 {
 		cfg.Plugins.Messaging.CodeQ.Brokers = append(cfg.Plugins.Messaging.CodeQ.Brokers, cfg.CodeQ.Brokers...)
 	}
+	if cfg.Plugins.Messaging.CodeQ.BaseURL == "" {
+		cfg.Plugins.Messaging.CodeQ.BaseURL = cfg.CodeQ.BaseURL
+	}
+	if cfg.Plugins.Messaging.CodeQ.ProducerToken == "" {
+		cfg.Plugins.Messaging.CodeQ.ProducerToken = cfg.CodeQ.ProducerToken
+	}
+	if cfg.Plugins.Messaging.CodeQ.WorkerToken == "" {
+		cfg.Plugins.Messaging.CodeQ.WorkerToken = cfg.CodeQ.WorkerToken
+	}
+	// Dev-friendly default when codeQ accepts producer token as worker.
+	if cfg.Plugins.Messaging.CodeQ.WorkerToken == "" {
+		cfg.Plugins.Messaging.CodeQ.WorkerToken = cfg.Plugins.Messaging.CodeQ.ProducerToken
+	}
 	if cfg.Plugins.Messaging.CodeQ.Topics.Invoke == "" {
 		cfg.Plugins.Messaging.CodeQ.Topics.Invoke = cfg.CodeQ.Topics.Invoke
 	}
@@ -268,6 +299,15 @@ func syncPluginConfig(cfg *Config) {
 	}
 	if len(cfg.CodeQ.Brokers) == 0 {
 		cfg.CodeQ.Brokers = append(cfg.CodeQ.Brokers, cfg.Plugins.Messaging.CodeQ.Brokers...)
+	}
+	if cfg.CodeQ.BaseURL == "" {
+		cfg.CodeQ.BaseURL = cfg.Plugins.Messaging.CodeQ.BaseURL
+	}
+	if cfg.CodeQ.ProducerToken == "" {
+		cfg.CodeQ.ProducerToken = cfg.Plugins.Messaging.CodeQ.ProducerToken
+	}
+	if cfg.CodeQ.WorkerToken == "" {
+		cfg.CodeQ.WorkerToken = cfg.Plugins.Messaging.CodeQ.WorkerToken
 	}
 	if cfg.CodeQ.Topics.Invoke == "" {
 		cfg.CodeQ.Topics.Invoke = cfg.Plugins.Messaging.CodeQ.Topics.Invoke
@@ -320,8 +360,11 @@ func (c Config) Validate() error {
 
 	switch c.Plugins.Messaging.Driver {
 	case "codeq":
-		if len(c.Plugins.Messaging.CodeQ.Brokers) == 0 {
-			return errors.New("plugins.messaging.codeq.brokers is required")
+		if strings.TrimSpace(c.Plugins.Messaging.CodeQ.BaseURL) == "" && len(c.Plugins.Messaging.CodeQ.Brokers) == 0 {
+			return errors.New("plugins.messaging.codeq.base_url or plugins.messaging.codeq.brokers is required")
+		}
+		if strings.TrimSpace(c.Plugins.Messaging.CodeQ.BaseURL) != "" && strings.TrimSpace(c.Plugins.Messaging.CodeQ.ProducerToken) == "" {
+			return errors.New("plugins.messaging.codeq.producer_token is required when plugins.messaging.codeq.base_url is set")
 		}
 		if c.Plugins.Messaging.CodeQ.Topics.Invoke == "" || c.Plugins.Messaging.CodeQ.Topics.Results == "" {
 			return errors.New("plugins.messaging.codeq.topics.invoke and results are required")
