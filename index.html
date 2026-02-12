@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SOUS</title>
+    <meta name="description" content="SOUS (code-sous) documentation portal." />
+    <style>
+      :root {
+        --bg: #050505;
+        --text: #e5e5e5;
+        --muted: #9a9aa3;
+        --line: #2f2f36;
+        --brand: #8b5cf6;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      }
+      main {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 56px 18px;
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 28px;
+        letter-spacing: 0.3px;
+      }
+      p {
+        margin: 0 0 18px;
+        color: var(--muted);
+      }
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px;
+        background: rgba(10, 10, 10, 0.9);
+      }
+      a {
+        color: #c5afff;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .links {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+      }
+      .link {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: #000;
+      }
+      .link strong {
+        color: var(--text);
+      }
+      .pill {
+        font-size: 12px;
+        border: 1px solid rgba(139, 92, 246, 0.4);
+        color: var(--brand);
+        padding: 2px 8px;
+        border-radius: 999px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>SOUS</h1>
+      <p>Serverless execution for agent-built automation.</p>
+
+      <section class="card">
+        <div class="links">
+          <a class="link" href="./wiki/">
+            <strong>Docs Portal</strong>
+            <span class="pill">/wiki/</span>
+          </a>
+          <a class="link" href="./wiki/?page=Get-Started">
+            <strong>Get Started</strong>
+            <span class="pill">quick path</span>
+          </a>
+          <a class="link" href="https://github.com/osvaldoandrade/sous/wiki" target="_blank" rel="noreferrer">
+            <strong>GitHub Wiki</strong>
+            <span class="pill">external</span>
+          </a>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
+

@@ -1,0 +1,333 @@
+const NAV = [
+  {
+    section: "Start Here",
+    pages: [
+      ["Home", "Home"],
+      ["Get Started", "Get-Started"],
+      ["Overview", "Overview"],
+      ["Architecture", "Architecture"],
+      ["Glossary", "Glossary"],
+      ["Requirements", "Requirements"],
+    ],
+  },
+  {
+    section: "Concepts",
+    pages: [
+      ["Function Lifecycle", "Concepts-Function-Lifecycle"],
+      ["Invocations and Activations", "Concepts-Invocations-and-Activations"],
+      ["Capabilities and Isolation", "Concepts-Capabilities-and-Isolation"],
+      ["Runtime: cs-js", "Runtime-cs-js"],
+      ["Invoker Pool", "Invoker-Pool"],
+    ],
+  },
+  {
+    section: "Triggers",
+    pages: [
+      ["HTTP Invoke Path", "HTTP-Invoke-Path"],
+      ["Scheduler", "Scheduler"],
+      ["Cadence Integration", "Cadence-Integration"],
+    ],
+  },
+  {
+    section: "Integration",
+    pages: [
+      ["IAM with Tikti", "IAM-with-Tikti"],
+      ["codeQ Protocol", "codeQ-Protocol"],
+      ["Storage: KVRocks", "Storage-KVRocks"],
+      ["ledgerDB Audit", "ledgerDB-Audit"],
+    ],
+  },
+  {
+    section: "Interfaces",
+    pages: [
+      ["REST API", "REST-API"],
+      ["CLI", "CLI"],
+      ["Schemas", "Schemas"],
+      ["Error Model", "Error-Model"],
+      ["Config Reference", "Config-Reference"],
+      ["Entity State Machines", "Entity-State-Machines"],
+    ],
+  },
+  {
+    section: "Operations",
+    pages: [
+      ["Deployment: Kubernetes", "Deployment-Kubernetes"],
+      ["Observability", "Observability"],
+      ["Security", "Security"],
+      ["Runbooks", "Runbooks"],
+      ["Migrations", "Migrations"],
+      ["Testing", "Testing"],
+      ["Capacity and Limits", "Capacity-and-Limits"],
+      ["Security Checklist", "Security-Checklist"],
+      ["Roadmap", "Roadmap"],
+    ],
+  },
+  {
+    section: "Use Cases",
+    pages: [
+      ["Use Cases", "Use-Cases"],
+      ["Use Case: Local Dev, Publish, Promote", "Use-Cases-Local-Dev-Publish-Promote"],
+      ["Use Case: HTTP Invoke (Sync)", "Use-Cases-HTTP-Invoke-Sync"],
+      ["Use Case: Schedule Invoke", "Use-Cases-Schedule-Invoke"],
+      ["Use Case: Cadence Activity Invoke", "Use-Cases-Cadence-Activity-Invoke"],
+      ["Use Case: Audit a Control-Plane Mutation", "Use-Cases-Audit-Control-Plane"],
+    ],
+  },
+];
+
+const DEFAULT_PAGE = "Home";
+const navEl = document.getElementById("nav");
+const contentEl = document.getElementById("content");
+const searchEl = document.getElementById("search");
+const currentPageEl = document.getElementById("current-page");
+const ALL_PAGE_SLUGS = NAV.flatMap((group) => group.pages.map((p) => p[1]));
+
+let mermaidConfigured = false;
+
+marked.setOptions({
+  gfm: true,
+  breaks: false,
+  mangle: false,
+  headerIds: true,
+});
+
+function getPageFromUrl() {
+  const page = new URLSearchParams(window.location.search).get("page");
+  if (page && ALL_PAGE_SLUGS.includes(page)) {
+    return page;
+  }
+  return DEFAULT_PAGE;
+}
+
+function pageLabel(slug) {
+  for (const group of NAV) {
+    const found = group.pages.find((entry) => entry[1] === slug);
+    if (found) {
+      return found[0];
+    }
+  }
+  return slug.replaceAll("-", " ");
+}
+
+function escapeHtml(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function rewriteInternalLinks() {
+  const anchors = contentEl.querySelectorAll("a[href]");
+  for (const anchor of anchors) {
+    const href = anchor.getAttribute("href") || "";
+    if (
+      !href ||
+      href.startsWith("http://") ||
+      href.startsWith("https://") ||
+      href.startsWith("mailto:") ||
+      href.startsWith("#") ||
+      href.startsWith("/")
+    ) {
+      continue;
+    }
+
+    const [rawPath, rawHash] = href.split("#");
+    const clean = (rawPath || "")
+      .replace(/^\.\//, "")
+      .replace(/\.md$/, "")
+      .replace(/\/$/, "");
+
+    if (!ALL_PAGE_SLUGS.includes(clean)) {
+      continue;
+    }
+
+    const hash = rawHash ? `#${rawHash}` : "";
+    anchor.setAttribute("href", `?page=${encodeURIComponent(clean)}${hash}`);
+  }
+}
+
+function renderNavigation(activePage, filterText = "") {
+  const normalizedFilter = filterText.trim().toLowerCase();
+  navEl.innerHTML = "";
+
+  for (const group of NAV) {
+    const filteredPages = group.pages.filter(([label, slug]) => {
+      if (!normalizedFilter) {
+        return true;
+      }
+      return label.toLowerCase().includes(normalizedFilter) || slug.toLowerCase().includes(normalizedFilter);
+    });
+
+    if (!filteredPages.length) {
+      continue;
+    }
+
+    const groupWrap = document.createElement("section");
+    groupWrap.className = "nav-group";
+
+    const title = document.createElement("h3");
+    title.className = "nav-title";
+    title.textContent = group.section;
+    groupWrap.appendChild(title);
+
+    const list = document.createElement("ul");
+    list.className = "nav-list";
+
+    for (const [label, slug] of filteredPages) {
+      const li = document.createElement("li");
+      const link = document.createElement("a");
+      link.href = `?page=${encodeURIComponent(slug)}`;
+      link.textContent = label;
+      link.className = `nav-link${slug === activePage ? " active" : ""}`;
+      li.appendChild(link);
+      list.appendChild(li);
+    }
+
+    groupWrap.appendChild(list);
+    navEl.appendChild(groupWrap);
+  }
+}
+
+function upgradeMermaidBlocks() {
+  const mermaidCodeBlocks = contentEl.querySelectorAll("pre code.language-mermaid, code.language-mermaid");
+
+  for (const codeBlock of mermaidCodeBlocks) {
+    const diagramText = (codeBlock.textContent || "").trim();
+    if (!diagramText) {
+      continue;
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "mermaid";
+    wrapper.textContent = diagramText;
+
+    const pre = codeBlock.closest("pre");
+    if (pre) {
+      pre.replaceWith(wrapper);
+    } else {
+      codeBlock.replaceWith(wrapper);
+    }
+  }
+}
+
+function ensureMermaidConfigured() {
+  if (mermaidConfigured || typeof mermaid === "undefined") {
+    return;
+  }
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "loose",
+    theme: "dark",
+    fontFamily: "Inter, sans-serif",
+    themeVariables: {
+      primaryColor: "#111113",
+      primaryTextColor: "#e5e5e5",
+      primaryBorderColor: "#8b5cf6",
+      lineColor: "#8b5cf6",
+      secondaryColor: "#0a0a0a",
+      tertiaryColor: "#050505",
+      actorBorder: "#8b5cf6",
+      actorBkg: "#111113",
+      actorTextColor: "#e5e5e5",
+      signalColor: "#f59e0b",
+      labelBoxBkgColor: "#111113",
+      labelBoxBorderColor: "#8b5cf6",
+      labelTextColor: "#e5e5e5",
+      noteBkgColor: "#1a1325",
+      noteBorderColor: "#8b5cf6",
+      noteTextColor: "#d8d8dc",
+      background: "#050505",
+    },
+  });
+  mermaidConfigured = true;
+}
+
+async function renderMermaid() {
+  const blocks = contentEl.querySelectorAll(".mermaid");
+  if (!blocks.length) {
+    return;
+  }
+
+  ensureMermaidConfigured();
+
+  if (typeof mermaid === "undefined") {
+    return;
+  }
+
+  try {
+    await mermaid.run({ nodes: blocks });
+  } catch (error) {
+    console.error("Mermaid render error:", error);
+    for (const block of blocks) {
+      if (block.querySelector("svg")) {
+        continue;
+      }
+      const fallback = document.createElement("pre");
+      const fallbackCode = document.createElement("code");
+      fallbackCode.textContent = block.textContent || "";
+      fallback.appendChild(fallbackCode);
+      block.replaceWith(fallback);
+    }
+  }
+}
+
+async function loadPage(pageSlug) {
+  currentPageEl.textContent = pageLabel(pageSlug);
+  document.title = `${pageLabel(pageSlug)} | SOUS Docs`;
+  renderNavigation(pageSlug, searchEl.value);
+
+  try {
+    const response = await fetch(`${pageSlug}.md`, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`Unable to load page ${pageSlug} (status ${response.status})`);
+    }
+
+    const markdown = await response.text();
+    contentEl.innerHTML = marked.parse(markdown);
+    upgradeMermaidBlocks();
+    rewriteInternalLinks();
+    await renderMermaid();
+  } catch (error) {
+    contentEl.innerHTML = `
+      <div class="error-card">
+        <strong>Could not load this page.</strong><br>
+        ${escapeHtml(error.message)}
+      </div>
+    `;
+  }
+}
+
+window.addEventListener("popstate", () => {
+  loadPage(getPageFromUrl());
+});
+
+document.addEventListener("click", (event) => {
+  const target = event.target.closest("a[href]");
+  if (!target) {
+    return;
+  }
+
+  const href = target.getAttribute("href") || "";
+  if (!href.startsWith("?page=")) {
+    return;
+  }
+
+  event.preventDefault();
+  const url = new URL(href, window.location.href);
+  const page = url.searchParams.get("page");
+  if (!page || !ALL_PAGE_SLUGS.includes(page)) {
+    return;
+  }
+
+  history.pushState({}, "", `?page=${encodeURIComponent(page)}`);
+  loadPage(page);
+});
+
+searchEl.addEventListener("input", () => {
+  renderNavigation(getPageFromUrl(), searchEl.value);
+});
+
+loadPage(getPageFromUrl());
+

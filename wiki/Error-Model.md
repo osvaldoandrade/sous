@@ -1,0 +1,63 @@
+# Error Model
+
+This file defines stable error codes.
+
+All errors use prefix `CS_`.
+
+## Authentication
+
+- `CS_AUTHN_MISSING_TOKEN`
+- `CS_AUTHN_INVALID_TOKEN`
+- `CS_AUTHN_EXPIRED_TOKEN`
+
+## Authorization
+
+- `CS_AUTHZ_DENIED`
+- `CS_AUTHZ_ROLE_MISSING`
+- `CS_AUTHZ_RESOURCE_MISMATCH`
+
+## Validation
+
+- `CS_VALIDATION_FAILED`
+- `CS_VALIDATION_MANIFEST_INVALID`
+- `CS_VALIDATION_BUNDLE_TOO_LARGE`
+- `CS_VALIDATION_NAME_INVALID`
+
+## Storage
+
+- `CS_KVROCKS_UNAVAILABLE`
+- `CS_KVROCKS_WRITE_FAILED`
+- `CS_KVROCKS_READ_FAILED`
+- `CS_KVROCKS_CAS_FAILED`
+
+## codeQ
+
+- `CS_CODEQ_PUBLISH_FAILED`
+- `CS_CODEQ_SUBSCRIBE_FAILED`
+- `CS_CODEQ_CORRELATION_TIMEOUT`
+
+## Runtime
+
+- `CS_RUNTIME_TIMEOUT`
+- `CS_RUNTIME_MEMORY_LIMIT`
+- `CS_RUNTIME_EXCEPTION`
+- `CS_RUNTIME_CAPABILITY_DENIED`
+
+## Cadence
+
+- `CS_CADENCE_POLL_FAILED`
+- `CS_CADENCE_RESPOND_FAILED`
+- `CS_CADENCE_HEARTBEAT_FAILED`
+
+## Scheduler
+
+- `CS_SCHEDULER_STATE_WRITE_FAILED`
+
+## Mapping to HTTP
+
+- `CS_AUTHN_*` → 401
+- `CS_AUTHZ_*` → 403
+- `CS_VALIDATION_*` → 400
+- `CS_CODEQ_CORRELATION_TIMEOUT` → 504
+- `CS_*_UNAVAILABLE` → 503
+- runtime errors inside function → 200 with function-defined statusCode, when the function returns a valid response object
