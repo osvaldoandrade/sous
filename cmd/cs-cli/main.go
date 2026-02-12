@@ -286,12 +286,16 @@ func fnDraftUpload(args []string) error {
 func fnPublish(args []string) error {
 	fs := flag.NewFlagSet("fn publish", flag.ContinueOnError)
 	var namespace, draftID, alias string
+	var invokeHTTPRoles, invokeScheduleRoles, invokeCadenceRoles string
 	var timeoutMS, memoryMB int
 	fs.StringVar(&namespace, "namespace", "default", "Namespace")
 	fs.StringVar(&draftID, "draft", "", "Draft ID")
 	fs.StringVar(&alias, "alias", "", "Alias to set")
 	fs.IntVar(&timeoutMS, "timeout-ms", 3000, "Timeout ms")
 	fs.IntVar(&memoryMB, "memory-mb", 64, "Memory MB")
+	fs.StringVar(&invokeHTTPRoles, "invoke-http-roles", "", "Comma-separated roles allowed for HTTP invoke")
+	fs.StringVar(&invokeScheduleRoles, "invoke-schedule-roles", "", "Comma-separated roles allowed for schedule invoke")
+	fs.StringVar(&invokeCadenceRoles, "invoke-cadence-roles", "", "Comma-separated roles allowed for cadence invoke")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -303,7 +307,20 @@ func fnPublish(args []string) error {
 	if err != nil {
 		return err
 	}
-	body := api.PublishVersionRequest{DraftID: draftID, Alias: alias, Config: api.VersionConfig{TimeoutMS: timeoutMS, MemoryMB: memoryMB, MaxConcurrency: 1}}
+	body := api.PublishVersionRequest{
+		DraftID: draftID,
+		Alias:   alias,
+		Config: api.VersionConfig{
+			TimeoutMS:      timeoutMS,
+			MemoryMB:       memoryMB,
+			MaxConcurrency: 1,
+			Authz: api.VersionAuthz{
+				InvokeHTTPRoles:     splitCSV(invokeHTTPRoles),
+				InvokeScheduleRoles: splitCSV(invokeScheduleRoles),
+				InvokeCadenceRoles:  splitCSV(invokeCadenceRoles),
+			},
+		},
+	}
 	url := fmt.Sprintf("%s/v1/tenants/%s/namespaces/%s/functions/%s/versions", cfg.APIURL, cfg.Tenant, namespace, name)
 	respBody, err := doJSON(cfg.Token, http.MethodPost, url, body)
 	if err != nil {
@@ -640,4 +657,25 @@ func safePrefix(v string, n int) string {
 		return v
 	}
 	return v[:n]
+}
+
+func splitCSV(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, p := range parts {
+		value := strings.TrimSpace(p)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }

@@ -64,7 +64,13 @@ cs fn draft upload reconcile --path .
 ### Publish
 
 ```
-cs fn publish reconcile --draft drf_01H... --timeout-ms 3000 --memory-mb 64
+cs fn publish reconcile \
+  --draft drf_01H... \
+  --timeout-ms 3000 \
+  --memory-mb 64 \
+  --invoke-http-roles admin \
+  --invoke-schedule-roles admin \
+  --invoke-cadence-roles admin
 ```
 
 ### Set alias

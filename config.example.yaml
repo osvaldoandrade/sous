@@ -7,6 +7,7 @@ plugins:
     tikti:
       introspection_url: http://localhost:8099/introspect
       cache_ttl_seconds: 60
+      api_key: ""
   persistence:
     driver: kvrocks
     kvrocks:
@@ -42,6 +43,7 @@ codeq:
 tikti:
   introspection_url: http://localhost:8099/introspect
   cache_ttl_seconds: 60
+  api_key: ""
 
 cs_control:
   http:

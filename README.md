@@ -32,6 +32,7 @@ Plugin drivers are configured under `plugins` in YAML:
 - `plugins.authn.driver` (default: `tikti`)
 - `plugins.persistence.driver` (default: `kvrocks`)
 - `plugins.messaging.driver` (default: `codeq`)
+- `plugins.authn.tikti.api_key` (required when Tikti lookup endpoint is protected by `?key=...`)
 
 Legacy top-level config blocks (`tikti`, `kvrocks`, `codeq`) are still accepted during migration.
 

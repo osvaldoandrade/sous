@@ -154,7 +154,15 @@ func TestFunctionAndTransportCommands(t *testing.T) {
 	if err := fnDraftUpload([]string{"--namespace", "ns1", "--path", fnDir, "fn1"}); err != nil {
 		t.Fatalf("fnDraftUpload failed: %v", err)
 	}
-	if err := fnPublish([]string{"--namespace", "ns1", "--draft", "drf_1", "--alias", "prod", "fn1"}); err != nil {
+	if err := fnPublish([]string{
+		"--namespace", "ns1",
+		"--draft", "drf_1",
+		"--alias", "prod",
+		"--invoke-http-roles", "admin, action:cs:function:invoke:http",
+		"--invoke-schedule-roles", "admin",
+		"--invoke-cadence-roles", "admin",
+		"fn1",
+	}); err != nil {
 		t.Fatalf("fnPublish failed: %v", err)
 	}
 	if err := fnAliasSet([]string{"--namespace", "ns1", "--version", "3", "fn1", "prod"}); err != nil {
@@ -236,6 +244,17 @@ func TestFunctionAndTransportCommands(t *testing.T) {
 	}
 	if publishReq.DraftID != "drf_1" || publishReq.Alias != "prod" {
 		t.Fatalf("publish payload mismatch: %+v", publishReq)
+	}
+	if len(publishReq.Config.Authz.InvokeHTTPRoles) != 2 ||
+		publishReq.Config.Authz.InvokeHTTPRoles[0] != "admin" ||
+		publishReq.Config.Authz.InvokeHTTPRoles[1] != "action:cs:function:invoke:http" {
+		t.Fatalf("publish invoke_http_roles mismatch: %+v", publishReq.Config.Authz.InvokeHTTPRoles)
+	}
+	if len(publishReq.Config.Authz.InvokeScheduleRoles) != 1 || publishReq.Config.Authz.InvokeScheduleRoles[0] != "admin" {
+		t.Fatalf("publish invoke_schedule_roles mismatch: %+v", publishReq.Config.Authz.InvokeScheduleRoles)
+	}
+	if len(publishReq.Config.Authz.InvokeCadenceRoles) != 1 || publishReq.Config.Authz.InvokeCadenceRoles[0] != "admin" {
+		t.Fatalf("publish invoke_cadence_roles mismatch: %+v", publishReq.Config.Authz.InvokeCadenceRoles)
 	}
 
 	// alias set payload
@@ -532,5 +551,31 @@ func TestAuthPathAndFnInitErrorBranches(t *testing.T) {
 	}
 	if err := fnInit(invalidDirPath); err == nil {
 		t.Fatal("expected fnInit failure when target path is a file")
+	}
+}
+
+func TestSplitCSV(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{name: "empty", in: "", want: nil},
+		{name: "spaces", in: "   ", want: nil},
+		{name: "single", in: "admin", want: []string{"admin"}},
+		{name: "trim and dedupe", in: "admin, admin , action:x,action:x", want: []string{"admin", "action:x"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := splitCSV(tt.in)
+			if len(got) != len(tt.want) {
+				t.Fatalf("splitCSV len=%d want=%d got=%v", len(got), len(tt.want), got)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("splitCSV[%d]=%q want=%q all=%v", i, got[i], tt.want[i], got)
+				}
+			}
+		})
 	}
 }

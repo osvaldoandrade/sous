@@ -15,6 +15,7 @@ func validConfigForTests() Config {
 	cfg.Plugins.AuthN.Driver = "tikti"
 	cfg.Plugins.AuthN.Tikti.IntrospectionURL = "https://tikti.example.com/introspect"
 	cfg.Plugins.AuthN.Tikti.CacheTTLSeconds = 60
+	cfg.Plugins.AuthN.Tikti.APIKey = "tikti_key"
 
 	cfg.Plugins.Persistence.Driver = "kvrocks"
 	cfg.Plugins.Persistence.KVRocks.Addr = "kvrocks:6666"
@@ -90,6 +91,7 @@ func TestOverrideEnvAndSyncPluginConfig(t *testing.T) {
 	t.Setenv("CS_KVROCKS_PASSWORD", "secret")
 	t.Setenv("CS_CODEQ_BROKERS", "b2, b3")
 	t.Setenv("CS_TIKTI_INTROSPECTION_URL", "https://tikti.example.com/introspect")
+	t.Setenv("CS_TIKTI_API_KEY", "tikti_api_key_env")
 	t.Setenv("CS_TIKTI_CACHE_TTL_SECONDS", "90")
 	overrideEnv(&cfg)
 
@@ -107,6 +109,9 @@ func TestOverrideEnvAndSyncPluginConfig(t *testing.T) {
 	}
 	if cfg.Tikti.IntrospectionURL == "" || cfg.Plugins.AuthN.Tikti.IntrospectionURL == "" {
 		t.Fatalf("unexpected tikti override: %+v %+v", cfg.Tikti, cfg.Plugins.AuthN.Tikti)
+	}
+	if cfg.Tikti.APIKey != "tikti_api_key_env" || cfg.Plugins.AuthN.Tikti.APIKey != "tikti_api_key_env" {
+		t.Fatalf("unexpected tikti api key override: %+v %+v", cfg.Tikti, cfg.Plugins.AuthN.Tikti)
 	}
 	if cfg.Tikti.CacheTTLSeconds != 90 || cfg.Plugins.AuthN.Tikti.CacheTTLSeconds != 90 {
 		t.Fatalf("unexpected tikti ttl override: %+v %+v", cfg.Tikti, cfg.Plugins.AuthN.Tikti)
@@ -127,6 +132,7 @@ func TestOverrideEnvAndSyncPluginConfig(t *testing.T) {
 	cfg.Environment = "prod"
 	cfg.Tikti.IntrospectionURL = "https://tikti.example.com/introspect"
 	cfg.Tikti.CacheTTLSeconds = 70
+	cfg.Tikti.APIKey = "tikti_key_from_legacy"
 	cfg.KVRocks.Addr = "kvrocks:6666"
 	cfg.KVRocks.Auth.Mode = "none"
 	cfg.KVRocks.Auth.Password = "pw"
@@ -142,6 +148,9 @@ func TestOverrideEnvAndSyncPluginConfig(t *testing.T) {
 	}
 	if cfg.Plugins.AuthN.Tikti.IntrospectionURL == "" || cfg.Plugins.Persistence.KVRocks.Addr == "" || len(cfg.Plugins.Messaging.CodeQ.Brokers) == 0 {
 		t.Fatalf("plugin hydration failed: %+v", cfg.Plugins)
+	}
+	if cfg.Plugins.AuthN.Tikti.APIKey != "tikti_key_from_legacy" || cfg.Tikti.APIKey != "tikti_key_from_legacy" {
+		t.Fatalf("unexpected tikti api key hydration: %+v %+v", cfg.Tikti, cfg.Plugins.AuthN.Tikti)
 	}
 }
 

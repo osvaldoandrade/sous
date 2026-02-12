@@ -36,6 +36,7 @@ type Config struct {
 	Tikti struct {
 		IntrospectionURL string `yaml:"introspection_url"`
 		CacheTTLSeconds  int    `yaml:"cache_ttl_seconds"`
+		APIKey           string `yaml:"api_key"`
 	} `yaml:"tikti"`
 
 	Plugins struct {
@@ -44,6 +45,7 @@ type Config struct {
 			Tikti  struct {
 				IntrospectionURL string `yaml:"introspection_url"`
 				CacheTTLSeconds  int    `yaml:"cache_ttl_seconds"`
+				APIKey           string `yaml:"api_key"`
 			} `yaml:"tikti"`
 		} `yaml:"authn"`
 		Persistence struct {
@@ -186,6 +188,10 @@ func overrideEnv(cfg *Config) {
 		cfg.Tikti.IntrospectionURL = v
 		cfg.Plugins.AuthN.Tikti.IntrospectionURL = v
 	}
+	if v := os.Getenv("CS_TIKTI_API_KEY"); v != "" {
+		cfg.Tikti.APIKey = v
+		cfg.Plugins.AuthN.Tikti.APIKey = v
+	}
 	if v := os.Getenv("CS_TIKTI_CACHE_TTL_SECONDS"); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil {
 			cfg.Tikti.CacheTTLSeconds = parsed
@@ -210,6 +216,9 @@ func syncPluginConfig(cfg *Config) {
 	}
 	if cfg.Plugins.AuthN.Tikti.CacheTTLSeconds == 0 {
 		cfg.Plugins.AuthN.Tikti.CacheTTLSeconds = cfg.Tikti.CacheTTLSeconds
+	}
+	if cfg.Plugins.AuthN.Tikti.APIKey == "" {
+		cfg.Plugins.AuthN.Tikti.APIKey = cfg.Tikti.APIKey
 	}
 
 	if cfg.Plugins.Persistence.KVRocks.Addr == "" {
@@ -244,6 +253,9 @@ func syncPluginConfig(cfg *Config) {
 	}
 	if cfg.Tikti.CacheTTLSeconds == 0 {
 		cfg.Tikti.CacheTTLSeconds = cfg.Plugins.AuthN.Tikti.CacheTTLSeconds
+	}
+	if cfg.Tikti.APIKey == "" {
+		cfg.Tikti.APIKey = cfg.Plugins.AuthN.Tikti.APIKey
 	}
 	if cfg.KVRocks.Addr == "" {
 		cfg.KVRocks.Addr = cfg.Plugins.Persistence.KVRocks.Addr

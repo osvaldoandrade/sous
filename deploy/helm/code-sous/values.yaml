@@ -29,6 +29,7 @@ config: |
       tikti:
         introspection_url: https://tikti.example.com/introspect
         cache_ttl_seconds: 60
+        api_key: ""
     persistence:
       driver: kvrocks
       kvrocks:
@@ -61,6 +62,7 @@ config: |
   tikti:
     introspection_url: https://tikti.example.com/introspect
     cache_ttl_seconds: 60
+    api_key: ""
   cs_control:
     http:
       addr: :8080

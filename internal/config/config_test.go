@@ -88,6 +88,7 @@ cs_cadence_poller:
 		t.Fatal(err)
 	}
 	t.Setenv("CS_KVROCKS_ADDR", "127.0.0.1:6666")
+	t.Setenv("CS_TIKTI_API_KEY", "tikti_api_key_env")
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -101,6 +102,9 @@ cs_cadence_poller:
 	}
 	if cfg.Plugins.AuthN.Driver != "tikti" {
 		t.Fatalf("expected authn driver tikti, got %q", cfg.Plugins.AuthN.Driver)
+	}
+	if cfg.Tikti.APIKey != "tikti_api_key_env" || cfg.Plugins.AuthN.Tikti.APIKey != "tikti_api_key_env" {
+		t.Fatalf("expected tikti api key override, got %+v %+v", cfg.Tikti, cfg.Plugins.AuthN.Tikti)
 	}
 }
 

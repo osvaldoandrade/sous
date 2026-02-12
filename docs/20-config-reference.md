@@ -14,6 +14,7 @@ plugins:
     tikti:
       introspection_url: https://tikti.example.com/introspect
       cache_ttl_seconds: 60
+      api_key: "tikti-api-key"
   persistence:
     driver: kvrocks
     kvrocks:
@@ -49,6 +50,7 @@ codeq:
 tikti:
   introspection_url: https://tikti.example.com/introspect
   cache_ttl_seconds: 60
+  api_key: "tikti-api-key"
 ```
 
 ## cs-control
