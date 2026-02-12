@@ -477,7 +477,7 @@ func (s *server) invokeAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	waitCtx, cancel := context.WithTimeout(r.Context(), time.Duration(meta.Config.TimeoutMS+250)*time.Millisecond)
 	defer cancel()
-	res, err := s.broker.WaitForResult(waitCtx, reqID)
+	res, err := waitForResultByRequestID(waitCtx, s.store, tenant, reqID)
 	if err != nil {
 		cserrors.WriteHTTP(w, err, requestID(r))
 		return
@@ -489,6 +489,38 @@ func (s *server) invokeAPI(w http.ResponseWriter, r *http.Request) {
 		"duration_ms":   res.DurationMS,
 		"error":         res.Error,
 	})
+}
+
+func waitForResultByRequestID(ctx context.Context, store persistence.Provider, tenant, requestID string) (api.InvocationResult, error) {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		res, err := store.GetResultByRequestID(ctx, tenant, requestID)
+		if err == nil {
+			return res, nil
+		}
+		if ctx.Err() != nil {
+			return api.InvocationResult{}, cserrors.New(cserrors.CSCodeQTimeout, "result wait timed out")
+		}
+		if isResultNotReady(err) {
+			select {
+			case <-ctx.Done():
+				return api.InvocationResult{}, cserrors.New(cserrors.CSCodeQTimeout, "result wait timed out")
+			case <-ticker.C:
+				continue
+			}
+		}
+		return api.InvocationResult{}, err
+	}
+}
+
+func isResultNotReady(err error) bool {
+	var csErr *cserrors.CSError
+	if !errors.As(err, &csErr) {
+		return false
+	}
+	return csErr.Code == cserrors.CSCodeQTimeout && strings.Contains(csErr.Message, "result not found")
 }
 
 func (s *server) getActivation(w http.ResponseWriter, r *http.Request) {

@@ -262,7 +262,6 @@ func (r *Runner) awaitValue(ctx context.Context, rt *goja.Runtime, val goja.Valu
 	if !ok {
 		return val, nil
 	}
-	_ = rt
 	if prom.State() == goja.PromiseStatePending {
 		select {
 		case <-ctx.Done():
@@ -272,9 +271,61 @@ func (r *Runner) awaitValue(ctx context.Context, rt *goja.Runtime, val goja.Valu
 		}
 	}
 	if prom.State() == goja.PromiseStateRejected {
-		return nil, fmt.Errorf("%v", prom.Result().Export())
+		// Export() for JS Error objects tends to lose the meaningful message (often ends up as an empty map),
+		// so prefer extracting stack/message/name or falling back to JS stringification.
+		return nil, fmt.Errorf("%s", formatPromiseRejection(rt, prom.Result()))
 	}
 	return prom.Result(), nil
+}
+
+func formatPromiseRejection(rt *goja.Runtime, reason goja.Value) string {
+	isNilish := func(v goja.Value) bool {
+		return v == nil || goja.IsUndefined(v) || goja.IsNull(v)
+	}
+
+	if isNilish(reason) {
+		return "promise rejected"
+	}
+
+	// Error-like objects: prefer stack, then name/message.
+	if obj := reason.ToObject(rt); obj != nil {
+		stack := obj.Get("stack")
+		if !isNilish(stack) {
+			if s := strings.TrimSpace(stack.String()); s != "" && s != "[object Object]" && s != "undefined" {
+				return s
+			}
+		}
+
+		msg := obj.Get("message")
+		if !isNilish(msg) {
+			m := strings.TrimSpace(msg.String())
+			if m != "" && m != "[object Object]" && m != "undefined" {
+				name := obj.Get("name")
+				if !isNilish(name) {
+					n := strings.TrimSpace(name.String())
+					if n != "" && n != "[object Object]" && n != "undefined" {
+						return fmt.Sprintf("%s: %s", n, m)
+					}
+				}
+				return m
+			}
+		}
+	}
+
+	// JS stringification is usually meaningful for errors ("Error: boom").
+	if s := strings.TrimSpace(reason.String()); s != "" && s != "[object Object]" && s != "undefined" {
+		return s
+	}
+
+	// Last resort: JSON encoding of the exported value.
+	exported := reason.Export()
+	if exported == nil {
+		return "promise rejected"
+	}
+	if raw, err := json.Marshal(exported); err == nil && len(raw) > 0 {
+		return string(raw)
+	}
+	return fmt.Sprintf("%v", exported)
 }
 
 func (r *Runner) bindLog(rt *goja.Runtime, csObj *goja.Object, logs *logCollector) error {

@@ -159,6 +159,17 @@ func TestRunnerAwaitValueStates(t *testing.T) {
 		t.Fatalf("rejected promise should return rejection reason, got: %v", err)
 	}
 
+	// JS Error objects should keep message/stack information.
+	errObj, err := rt.RunString(`new Error("boom_error_object")`)
+	if err != nil {
+		t.Fatalf("create error object: %v", err)
+	}
+	rejectedErrObj, _, rejectErrObj := rt.NewPromise()
+	rejectErrObj(errObj)
+	if _, err := r.awaitValue(context.Background(), rt, rt.ToValue(rejectedErrObj)); err == nil || !strings.Contains(err.Error(), "boom_error_object") {
+		t.Fatalf("rejected Error object should include message, got: %v", err)
+	}
+
 	fulfilled, resolve, _ := rt.NewPromise()
 	resolve(rt.ToValue(map[string]any{"ok": true}))
 	v, err := r.awaitValue(context.Background(), rt, rt.ToValue(fulfilled))

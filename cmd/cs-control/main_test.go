@@ -403,6 +403,16 @@ func TestAliasInvokeAndActivationHandlers(t *testing.T) {
 			return []api.AliasRecord{{Alias: "prod", Version: 3}}, nil
 		},
 		ResolveVersionFn: func(context.Context, string, string, string, string, int64) (int64, error) { return 3, nil },
+		GetResultByRequestIDFn: func(ctx context.Context, tenant, requestID string) (api.InvocationResult, error) {
+			_ = ctx
+			_ = tenant
+			return api.InvocationResult{
+				ActivationID: "act_sync",
+				RequestID:    requestID,
+				Status:       "success",
+				Result:       &api.FunctionResponse{StatusCode: 200, Body: "ok"},
+			}, nil
+		},
 		GetActivationFn: func(context.Context, string, string) (api.ActivationRecord, error) {
 			return api.ActivationRecord{ActivationID: "act_1", Status: "success"}, nil
 		},
@@ -412,9 +422,6 @@ func TestAliasInvokeAndActivationHandlers(t *testing.T) {
 	}
 	broker := &testutil.FakeMessaging{
 		PublishInvocationFn: func(context.Context, api.InvocationRequest) error { return nil },
-		WaitForResultFn: func(context.Context, string) (api.InvocationResult, error) {
-			return api.InvocationResult{ActivationID: "act_sync", Status: "success", Result: &api.FunctionResponse{StatusCode: 200, Body: "ok"}}, nil
-		},
 	}
 	s := newControlServer(store, broker)
 
@@ -1273,8 +1280,11 @@ func TestHandlerErrorMatrixFromSpec(t *testing.T) {
 		}
 
 		broker.PublishInvocationFn = func(context.Context, api.InvocationRequest) error { return nil }
-		broker.WaitForResultFn = func(context.Context, string) (api.InvocationResult, error) {
-			return api.InvocationResult{}, cserrors.New(cserrors.CSCodeQTimeout, "wait timeout")
+		store.GetResultByRequestIDFn = func(ctx context.Context, tenant, requestID string) (api.InvocationResult, error) {
+			_ = ctx
+			_ = tenant
+			_ = requestID
+			return api.InvocationResult{}, cserrors.New(cserrors.CSCodeQTimeout, "result not found")
 		}
 		w = httptest.NewRecorder()
 		req = controlRequest(http.MethodPost, "/invoke", `{"mode":"sync","ref":{"alias":"prod"}}`, map[string]string{

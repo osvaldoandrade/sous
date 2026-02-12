@@ -150,6 +150,11 @@ func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, 
 			Result:       existing.Result,
 			Error:        existing.Error,
 		}
+		if err := i.store.SaveResultByRequestID(ctx, req.Tenant, req.RequestID, stored, 10*time.Minute); err != nil {
+			if i.logger != nil {
+				i.logger.Warn(ctx, "failed to save request correlation result: "+err.Error())
+			}
+		}
 		_ = i.broker.PublishResult(ctx, req.Tenant, stored)
 		return nil
 	}
@@ -225,7 +230,11 @@ func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, 
 		Result:       out.Result,
 		Error:        out.Error,
 	}
-	_ = i.store.SaveResultByRequestID(ctx, req.Tenant, req.RequestID, result, 10*time.Minute)
+	if err := i.store.SaveResultByRequestID(ctx, req.Tenant, req.RequestID, result, 10*time.Minute); err != nil {
+		if i.logger != nil {
+			i.logger.Warn(ctx, "failed to save request correlation result: "+err.Error())
+		}
+	}
 	if err := i.broker.PublishResult(ctx, req.Tenant, result); err != nil {
 		_ = i.broker.PublishDLQResult(ctx, req.Tenant, result)
 		return err

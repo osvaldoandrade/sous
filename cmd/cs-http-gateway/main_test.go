@@ -152,18 +152,9 @@ func TestInvokeHTTPSuccessAndErrorPaths(t *testing.T) {
 				},
 			}, nil, nil
 		},
-	}
-	messaging := &testutil.FakeMessaging{
-		PublishInvocationFn: func(ctx context.Context, req api.InvocationRequest) error {
+		GetResultByRequestIDFn: func(ctx context.Context, tenant, requestID string) (api.InvocationResult, error) {
 			_ = ctx
-			capturedInvocation = req
-			if req.Ref.Function != "f1" || req.Ref.Version != 3 {
-				t.Fatalf("unexpected invocation: %+v", req)
-			}
-			return nil
-		},
-		WaitForResultFn: func(ctx context.Context, requestID string) (api.InvocationResult, error) {
-			_ = ctx
+			_ = tenant
 			return api.InvocationResult{
 				ActivationID: "act_1",
 				RequestID:    requestID,
@@ -175,6 +166,16 @@ func TestInvokeHTTPSuccessAndErrorPaths(t *testing.T) {
 					IsBase64Encoded: true,
 				},
 			}, nil
+		},
+	}
+	messaging := &testutil.FakeMessaging{
+		PublishInvocationFn: func(ctx context.Context, req api.InvocationRequest) error {
+			_ = ctx
+			capturedInvocation = req
+			if req.Ref.Function != "f1" || req.Ref.Version != 3 {
+				t.Fatalf("unexpected invocation: %+v", req)
+			}
+			return nil
 		},
 	}
 	cfg := config.Config{}
@@ -237,16 +238,15 @@ func TestInvokeHTTPSuccessAndErrorPaths(t *testing.T) {
 	}
 
 	// Broker returns result without payload -> runtime exception.
-	s.broker = &testutil.FakeMessaging{
-		PublishInvocationFn: func(context.Context, api.InvocationRequest) error { return nil },
-		WaitForResultFn: func(ctx context.Context, requestID string) (api.InvocationResult, error) {
-			_ = ctx
-			return api.InvocationResult{
-				RequestID: requestID,
-				Status:    "error",
-				Error:     &api.InvocationError{Message: "boom"},
-			}, nil
-		},
+	s.broker = &testutil.FakeMessaging{PublishInvocationFn: func(context.Context, api.InvocationRequest) error { return nil }}
+	persistence.GetResultByRequestIDFn = func(ctx context.Context, tenant, requestID string) (api.InvocationResult, error) {
+		_ = ctx
+		_ = tenant
+		return api.InvocationResult{
+			RequestID: requestID,
+			Status:    "error",
+			Error:     &api.InvocationError{Message: "boom"},
+		}, nil
 	}
 	w = httptest.NewRecorder()
 	req = gatewayRequest(http.MethodPost, "/v1/web/t1/n1/f1/prod", `{}`, map[string]string{
@@ -311,19 +311,6 @@ func TestServeAuthNCreationErrorAndInvokeAdditionalBranches(t *testing.T) {
 	}
 	broker := &testutil.FakeMessaging{
 		PublishInvocationFn: func(context.Context, api.InvocationRequest) error { return nil },
-		WaitForResultFn: func(ctx context.Context, requestID string) (api.InvocationResult, error) {
-			_ = ctx
-			return api.InvocationResult{
-				ActivationID: "a1",
-				RequestID:    requestID,
-				Status:       "success",
-				Result: &api.FunctionResponse{
-					StatusCode:      200,
-					Body:            "%%%invalid-base64%%%",
-					IsBase64Encoded: true,
-				},
-			}, nil
-		},
 	}
 	cfg = config.Config{}
 	cfg.CSHTTPGateway.Limits.MaxBodyBytes = 2
@@ -411,6 +398,20 @@ func TestServeAuthNCreationErrorAndInvokeAdditionalBranches(t *testing.T) {
 	}
 
 	// invalid base64 in function result should fallback to raw body.
+	store.GetResultByRequestIDFn = func(ctx context.Context, tenant, requestID string) (api.InvocationResult, error) {
+		_ = ctx
+		_ = tenant
+		return api.InvocationResult{
+			ActivationID: "a1",
+			RequestID:    requestID,
+			Status:       "success",
+			Result: &api.FunctionResponse{
+				StatusCode:      200,
+				Body:            "%%%invalid-base64%%%",
+				IsBase64Encoded: true,
+			},
+		}, nil
+	}
 	cfg.CSHTTPGateway.Limits.MaxBodyBytes = 1024
 	cfg.CSHTTPGateway.Limits.MaxHeaderBytes = 1024
 	cfg.CSHTTPGateway.Limits.MaxQueryBytes = 1024
@@ -462,12 +463,15 @@ func TestInvokeHTTPErrorContracts(t *testing.T) {
 					},
 				}, nil, nil
 			},
+			GetResultByRequestIDFn: func(ctx context.Context, tenant, requestID string) (api.InvocationResult, error) {
+				_ = ctx
+				_ = tenant
+				_ = requestID
+				return api.InvocationResult{}, cserrors.New(cserrors.CSCodeQTimeout, "result not found")
+			},
 		}
 		broker := &testutil.FakeMessaging{
 			PublishInvocationFn: func(context.Context, api.InvocationRequest) error { return nil },
-			WaitForResultFn: func(context.Context, string) (api.InvocationResult, error) {
-				return api.InvocationResult{}, cserrors.New(cserrors.CSCodeQTimeout, "timeout")
-			},
 		}
 		cfg := config.Config{}
 		cfg.CSHTTPGateway.Limits.MaxBodyBytes = 1024
@@ -503,14 +507,14 @@ func TestInvokeHTTPErrorContracts(t *testing.T) {
 					},
 				}, nil, nil
 			},
+			GetResultByRequestIDFn: func(ctx context.Context, tenant, requestID string) (api.InvocationResult, error) {
+				_ = ctx
+				_ = tenant
+				return api.InvocationResult{RequestID: requestID, Status: "error"}, nil
+			},
 		}
 		broker := &testutil.FakeMessaging{
 			PublishInvocationFn: func(context.Context, api.InvocationRequest) error { return nil },
-			WaitForResultFn: func(context.Context, string) (api.InvocationResult, error) {
-				return api.InvocationResult{
-					Status: "error",
-				}, nil
-			},
 		}
 		cfg := config.Config{}
 		cfg.CSHTTPGateway.Limits.MaxBodyBytes = 1024
