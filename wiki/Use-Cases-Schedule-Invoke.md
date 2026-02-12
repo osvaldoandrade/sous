@@ -1,4 +1,4 @@
-# Use Case: Schedule Invoke
+# Schedule Invoke
 
 This flow executes a function on a fixed interval.
 

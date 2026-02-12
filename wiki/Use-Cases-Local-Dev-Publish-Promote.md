@@ -1,4 +1,4 @@
-# Use Case: Local Dev, Publish, Promote
+# Local Dev, Publish, Promote
 
 This flow is the core SOUS workflow for agent-generated functions: create locally, validate semantics with the same runtime, publish an immutable version, then promote traffic using an alias.
 

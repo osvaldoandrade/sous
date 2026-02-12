@@ -1,7 +1,6 @@
 # SOUS Docs
 
 ## Start Here
-- [Home](Home)
 - [Get Started](Get-Started)
 - [Overview](Overview)
 - [Architecture](Architecture)
@@ -41,8 +40,8 @@
 
 ## Use Cases
 - [Use Cases](Use-Cases)
-- [Use Case: Local Dev, Publish, Promote](Use-Cases-Local-Dev-Publish-Promote)
-- [Use Case: HTTP Invoke (Sync)](Use-Cases-HTTP-Invoke-Sync)
-- [Use Case: Schedule Invoke](Use-Cases-Schedule-Invoke)
-- [Use Case: Cadence Activity Invoke](Use-Cases-Cadence-Activity-Invoke)
-- [Use Case: Audit a Control-Plane Mutation](Use-Cases-Audit-Control-Plane)
+- [Local Dev, Publish, Promote](Use-Cases-Local-Dev-Publish-Promote)
+- [HTTP Invoke (Sync)](Use-Cases-HTTP-Invoke-Sync)
+- [Schedule Invoke](Use-Cases-Schedule-Invoke)
+- [Cadence Activity Invoke](Use-Cases-Cadence-Activity-Invoke)
+- [Audit a Control-Plane Mutation](Use-Cases-Audit-Control-Plane)

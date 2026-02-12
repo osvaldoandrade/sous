@@ -2,7 +2,6 @@ const NAV = [
   {
     section: "Start Here",
     pages: [
-      ["Home", "Home"],
       ["Get Started", "Get-Started"],
       ["Overview", "Overview"],
       ["Architecture", "Architecture"],
@@ -66,16 +65,16 @@ const NAV = [
     section: "Use Cases",
     pages: [
       ["Use Cases", "Use-Cases"],
-      ["Use Case: Local Dev, Publish, Promote", "Use-Cases-Local-Dev-Publish-Promote"],
-      ["Use Case: HTTP Invoke (Sync)", "Use-Cases-HTTP-Invoke-Sync"],
-      ["Use Case: Schedule Invoke", "Use-Cases-Schedule-Invoke"],
-      ["Use Case: Cadence Activity Invoke", "Use-Cases-Cadence-Activity-Invoke"],
-      ["Use Case: Audit a Control-Plane Mutation", "Use-Cases-Audit-Control-Plane"],
+      ["Local Dev, Publish, Promote", "Use-Cases-Local-Dev-Publish-Promote"],
+      ["HTTP Invoke (Sync)", "Use-Cases-HTTP-Invoke-Sync"],
+      ["Schedule Invoke", "Use-Cases-Schedule-Invoke"],
+      ["Cadence Activity Invoke", "Use-Cases-Cadence-Activity-Invoke"],
+      ["Audit a Control-Plane Mutation", "Use-Cases-Audit-Control-Plane"],
     ],
   },
 ];
 
-const DEFAULT_PAGE = "Home";
+const DEFAULT_PAGE = "Get-Started";
 const navEl = document.getElementById("nav");
 const contentEl = document.getElementById("content");
 const searchEl = document.getElementById("search");
@@ -92,7 +91,8 @@ marked.setOptions({
 });
 
 function getPageFromUrl() {
-  const page = new URLSearchParams(window.location.search).get("page");
+  const raw = new URLSearchParams(window.location.search).get("page") || "";
+  const page = raw === "Home" ? DEFAULT_PAGE : raw;
   if (page && ALL_PAGE_SLUGS.includes(page)) {
     return page;
   }
@@ -139,12 +139,13 @@ function rewriteInternalLinks() {
       .replace(/\.md$/, "")
       .replace(/\/$/, "");
 
-    if (!ALL_PAGE_SLUGS.includes(clean)) {
+    const resolved = clean === "Home" ? DEFAULT_PAGE : clean;
+    if (!ALL_PAGE_SLUGS.includes(resolved)) {
       continue;
     }
 
     const hash = rawHash ? `#${rawHash}` : "";
-    anchor.setAttribute("href", `?page=${encodeURIComponent(clean)}${hash}`);
+    anchor.setAttribute("href", `?page=${encodeURIComponent(resolved)}${hash}`);
   }
 }
 
@@ -316,12 +317,13 @@ document.addEventListener("click", (event) => {
 
   event.preventDefault();
   const url = new URL(href, window.location.href);
-  const page = url.searchParams.get("page");
+  const raw = url.searchParams.get("page");
+  const page = raw === "Home" ? DEFAULT_PAGE : raw;
   if (!page || !ALL_PAGE_SLUGS.includes(page)) {
     return;
   }
 
-  history.pushState({}, "", `?page=${encodeURIComponent(page)}`);
+  history.pushState({}, "", `?page=${encodeURIComponent(page)}${url.hash || ""}`);
   loadPage(page);
 });
 
@@ -330,4 +332,3 @@ searchEl.addEventListener("input", () => {
 });
 
 loadPage(getPageFromUrl());
-

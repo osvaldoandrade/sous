@@ -1,4 +1,4 @@
-# Use Case: HTTP Invoke (Sync)
+# HTTP Invoke (Sync)
 
 This flow invokes a published function through the generic HTTP endpoint and waits for an execution result.
 

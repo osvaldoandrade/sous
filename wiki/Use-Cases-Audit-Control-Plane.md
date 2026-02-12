@@ -1,4 +1,4 @@
-# Use Case: Audit a Control-Plane Mutation
+# Audit a Control-Plane Mutation
 
 When ledgerDB audit is enabled, SOUS emits an audit event for each control-plane mutation.
 

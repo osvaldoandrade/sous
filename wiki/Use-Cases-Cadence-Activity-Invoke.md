@@ -1,4 +1,4 @@
-# Use Case: Cadence Activity Invoke
+# Cadence Activity Invoke
 
 This flow allows Cadence Activities to be executed by SOUS functions.
 
