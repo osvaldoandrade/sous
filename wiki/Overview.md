@@ -1,6 +1,6 @@
 # Overview
 
-SOUS is a serverless execution layer built for agent-generated automation. Like AWS Lambda, it gives you a stable runtime contract, multiple trigger types, and a clear isolation boundary. Unlike many serverless platforms, SOUS intentionally optimizes for "functions as text" and deterministic parity between local execution (CLI) and cluster execution (invoker pool).
+SOUS is a serverless execution layer built for agent-generated automation. Like mature serverless platforms, it gives you a stable runtime contract, multiple trigger types, and a clear isolation boundary. Unlike many platforms, SOUS intentionally optimizes for "functions as text" and deterministic parity between local execution (CLI) and cluster execution (invoker pool).
 
 The product intent is simple: an agent receives a task, generates a small function that encodes the task logic, runs that function locally to validate behavior, publishes it to the cluster, and invokes it through a trigger that matches the workflow (HTTP, schedule, or Cadence).
 
@@ -56,4 +56,3 @@ If you want the system from first principles, read:
 2. [Runtime: cs-js](Runtime-cs-js)
 3. [Invoker Pool](Invoker-Pool)
 4. [REST API](REST-API)
-
