@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cs.results.v1",
+  "type": "object",
+  "required": ["activation_id", "request_id", "status", "duration_ms"],
+  "properties": {
+    "activation_id": { "type": "string", "format": "uuid" },
+    "request_id": { "type": "string", "minLength": 8, "maxLength": 64 },
+    "status": { "enum": ["success", "error", "timeout"] },
+    "duration_ms": { "type": "integer", "minimum": 0 },
+    "result": {
+      "type": "object",
+      "properties": {
+        "statusCode": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+        "body": { "type": "string" },
+        "isBase64Encoded": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "message": { "type": "string", "maxLength": 65536 },
+        "stack": { "type": "string", "maxLength": 8192 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

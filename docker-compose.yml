@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+  kvrocks:
+    image: apache/kvrocks:2.11.0
+    ports:
+      - "6666:6666"
+    command: ["kvrocks", "-c", "/etc/kvrocks/kvrocks.conf"]
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.3.10
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=1G
+      - --reserve-memory=0M
+      - --overprovisioned
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://localhost:9092
+    ports:
+      - "9092:9092"
+      - "9644:9644"

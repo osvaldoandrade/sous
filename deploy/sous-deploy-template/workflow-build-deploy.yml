@@ -1,0 +1,83 @@
+name: build-and-deploy-code-sous
+
+on:
+  workflow_dispatch:
+    inputs:
+      sous_ref:
+        description: "Ref from github.com/osvaldoandrade/sous"
+        required: true
+        default: "main"
+      environment:
+        description: "Environment name"
+        required: true
+        default: "prod"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: ghcr.io/osvaldoandrade
+    steps:
+      - name: Checkout sous-deploy
+        uses: actions/checkout@v4
+
+      - name: Checkout sous source dependency
+        uses: actions/checkout@v4
+        with:
+          repository: osvaldoandrade/sous
+          ref: ${{ inputs.sous_ref }}
+          path: sous
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: sous/go.mod
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build service binaries
+        run: |
+          cd sous
+          make build
+
+      - name: Build and push service images
+        run: |
+          set -euo pipefail
+          TAG=${{ inputs.sous_ref }}-${GITHUB_SHA::8}
+          for svc in cs-control cs-http-gateway cs-invoker-pool cs-scheduler cs-cadence-poller; do
+            cat > /tmp/Dockerfile.$svc <<DOCKER
+          FROM gcr.io/distroless/base-debian12
+          WORKDIR /
+          COPY sous/bin/$svc /$svc
+          ENTRYPOINT ["/$svc"]
+          DOCKER
+            docker build -f /tmp/Dockerfile.$svc -t $REGISTRY/$svc:$TAG .
+            docker push $REGISTRY/$svc:$TAG
+          done
+          echo "TAG=$TAG" >> $GITHUB_ENV
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Configure kubeconfig
+        run: |
+          echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > kubeconfig
+          echo "KUBECONFIG=$PWD/kubeconfig" >> $GITHUB_ENV
+
+      - name: Deploy chart
+        run: |
+          helm upgrade --install code-sous ./sous/deploy/helm/code-sous \
+            -n code-sous-system --create-namespace \
+            -f ./environments/${{ inputs.environment }}/values.yaml \
+            --set image.tag=${TAG}

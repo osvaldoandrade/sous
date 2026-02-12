@@ -1,0 +1,13 @@
+{{- range $name := list "cs-control" "cs-http-gateway" "cs-invoker-pool" "cs-scheduler" "cs-cadence-poller" }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}-pdb
+  namespace: {{ $.Values.namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: {{ $name }}
+{{- end }}

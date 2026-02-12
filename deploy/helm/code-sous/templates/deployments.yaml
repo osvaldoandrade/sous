@@ -1,0 +1,61 @@
+{{- $services := list
+  (dict "name" "cs-control" "port" .Values.service.control "replicas" .Values.replicas.control)
+  (dict "name" "cs-http-gateway" "port" .Values.service.httpGateway "replicas" .Values.replicas.httpGateway)
+  (dict "name" "cs-invoker-pool" "port" .Values.service.invokerPool "replicas" .Values.replicas.invokerPool)
+  (dict "name" "cs-scheduler" "port" .Values.service.scheduler "replicas" .Values.replicas.scheduler)
+  (dict "name" "cs-cadence-poller" "port" .Values.service.cadencePoller "replicas" .Values.replicas.cadencePoller)
+-}}
+{{- range $svc := $services }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $svc.name }}
+  namespace: {{ $.Values.namespace }}
+spec:
+  replicas: {{ $svc.replicas }}
+  selector:
+    matchLabels:
+      app: {{ $svc.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $svc.name }}
+    spec:
+      containers:
+        - name: {{ $svc.name }}
+          image: "{{ $.Values.image.repository }}/{{ $svc.name }}:{{ $.Values.image.tag }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          args: ["--config", "/etc/code-sous/config.yaml"]
+          ports:
+            - containerPort: {{ $svc.port }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {{ $svc.port }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ $svc.port }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/code-sous
+      volumes:
+        - name: config
+          configMap:
+            name: cs-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc.name }}
+  namespace: {{ $.Values.namespace }}
+spec:
+  selector:
+    app: {{ $svc.name }}
+  ports:
+    - port: {{ $svc.port }}
+      targetPort: {{ $svc.port }}
+      protocol: TCP
+      name: http
+{{- end }}

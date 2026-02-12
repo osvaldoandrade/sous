@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cs.invoke.v1",
+  "type": "object",
+  "required": [
+    "activation_id",
+    "request_id",
+    "tenant",
+    "namespace",
+    "ref",
+    "trigger",
+    "principal",
+    "deadline_ms",
+    "event"
+  ],
+  "properties": {
+    "activation_id": { "type": "string", "format": "uuid" },
+    "request_id": { "type": "string", "minLength": 8, "maxLength": 64 },
+    "tenant": { "type": "string", "minLength": 3, "maxLength": 64 },
+    "namespace": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "ref": {
+      "type": "object",
+      "required": ["function"],
+      "properties": {
+        "function": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "alias": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "version": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "trigger": {
+      "type": "object",
+      "required": ["type", "source"],
+      "properties": {
+        "type": { "enum": ["http", "schedule", "cadence", "api"] },
+        "source": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "principal": {
+      "type": "object",
+      "required": ["sub", "roles"],
+      "properties": {
+        "sub": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "roles": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "maxItems": 256
+        }
+      },
+      "additionalProperties": false
+    },
+    "deadline_ms": { "type": "integer", "minimum": 1 },
+    "event": {}
+  },
+  "additionalProperties": false
+}
