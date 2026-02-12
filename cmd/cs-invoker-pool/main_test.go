@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -396,13 +397,20 @@ export default function() {
 	})
 }
 
-func TestRunReturnsWhenConsumerExits(t *testing.T) {
+func TestRunRetriesWhenConsumerExitsWithoutError(t *testing.T) {
+	var calls atomic.Int32
+	var once sync.Once
+	done := make(chan struct{})
+
 	store := &testutil.FakePersistence{}
 	broker := &testutil.FakeMessaging{
 		ConsumeInvocationsFn: func(ctx context.Context, groupID string, handler func(messaging.Envelope, api.InvocationRequest) error) error {
 			_ = ctx
 			_ = groupID
 			_ = handler
+			if calls.Add(1) >= 3 {
+				once.Do(func() { close(done) })
+			}
 			return nil
 		},
 	}
@@ -411,18 +419,30 @@ func TestRunReturnsWhenConsumerExits(t *testing.T) {
 	i.cfg.CSInvokerPool.HTTP.Addr = ":-1"
 	i.logger = observability.NewLoggerWithWriter("test", io.Discard)
 
-	if err := i.run(); err != nil {
-		t.Fatalf("run returned error: %v", err)
+	go func() {
+		_ = i.run()
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("expected consumer retries after clean exit; calls=%d", calls.Load())
 	}
 }
 
-func TestRunHandlesConsumerErrorAndReturns(t *testing.T) {
+func TestRunRetriesWhenConsumerReturnsError(t *testing.T) {
+	var calls atomic.Int32
+	var once sync.Once
+	done := make(chan struct{})
+
 	store := &testutil.FakePersistence{}
 	broker := &testutil.FakeMessaging{
 		ConsumeInvocationsFn: func(ctx context.Context, groupID string, handler func(messaging.Envelope, api.InvocationRequest) error) error {
 			_ = ctx
 			_ = groupID
 			_ = handler
+			if calls.Add(1) >= 3 {
+				once.Do(func() { close(done) })
+			}
 			return errors.New("consumer failed")
 		},
 	}
@@ -431,8 +451,13 @@ func TestRunHandlesConsumerErrorAndReturns(t *testing.T) {
 	i.cfg.CSInvokerPool.HTTP.Addr = ":-1"
 	i.logger = observability.NewLoggerWithWriter("test", io.Discard)
 
-	if err := i.run(); err != nil {
-		t.Fatalf("run should return nil after worker exits with error, got %v", err)
+	go func() {
+		_ = i.run()
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("expected consumer retries after error; calls=%d", calls.Load())
 	}
 }
 

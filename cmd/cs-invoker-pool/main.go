@@ -88,11 +88,18 @@ func (i *invoker) run() error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := i.broker.ConsumeInvocations(ctx, groupID, func(env messaging.Envelope, req api.InvocationRequest) error {
-				return i.handleInvocation(ctx, env, req)
-			})
-			if err != nil {
-				i.logger.Error(context.Background(), "consumer failed: "+err.Error())
+			for {
+				err := i.broker.ConsumeInvocations(ctx, groupID, func(env messaging.Envelope, req api.InvocationRequest) error {
+					return i.handleInvocation(ctx, env, req)
+				})
+				if err != nil {
+					i.logger.Error(context.Background(), "consumer failed: "+err.Error())
+					time.Sleep(500 * time.Millisecond)
+					continue
+				}
+				// Keep workers alive on unexpected consumer returns.
+				i.logger.Error(context.Background(), "consumer stopped without error; restarting")
+				time.Sleep(500 * time.Millisecond)
 			}
 		}()
 	}
