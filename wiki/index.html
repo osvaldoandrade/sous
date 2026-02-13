@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="wiki.css">
 </head>
 <body>
@@ -15,15 +16,24 @@
 
   <header class="topbar">
     <div class="brand-wrap">
-      <span class="brand-mark">&gt;_</span>
+      <span class="brand-mark">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-8 h-8">
+          <rect x="10" y="2" width="4" height="12" fill="currentColor"/>
+          <rect x="10" y="4" width="2" height="2" fill="#020617"/>
+          <rect x="6" y="14" width="12" height="8" fill="currentColor" fill-opacity="0.3"/>
+          <rect x="8" y="16" width="8" height="4" fill="currentColor" fill-opacity="0.2"/>
+        </svg>
+      </span>
       <div>
-        <p class="brand-title">SOUS Docs</p>
-        <p class="brand-subtitle">Serverless execution for agent-built automation</p>
+        <p class="brand-title">sous Docs</p>
+        <p class="brand-subtitle">Execution Layer for AI Agents</p>
       </div>
     </div>
     <div class="top-actions">
       <a class="btn ghost" href="../">Back to Home</a>
-      <a class="btn" href="https://github.com/osvaldoandrade/sous/wiki" target="_blank" rel="noreferrer">Open GitHub Wiki</a>
+      <a href="https://github.com/osvaldoandrade/sous" target="_blank" class="github-link">
+        <i class="fa-brands fa-github"></i>
+      </a>
     </div>
   </header>
 

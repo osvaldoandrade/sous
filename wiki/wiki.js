@@ -223,23 +223,23 @@ function ensureMermaidConfigured() {
     theme: "dark",
     fontFamily: "Inter, sans-serif",
     themeVariables: {
-      primaryColor: "#111113",
-      primaryTextColor: "#e5e5e5",
-      primaryBorderColor: "#8b5cf6",
-      lineColor: "#8b5cf6",
-      secondaryColor: "#0a0a0a",
-      tertiaryColor: "#050505",
-      actorBorder: "#8b5cf6",
-      actorBkg: "#111113",
-      actorTextColor: "#e5e5e5",
+      primaryColor: "#0f172a",
+      primaryTextColor: "#f8fafc",
+      primaryBorderColor: "#10b981",
+      lineColor: "#10b981",
+      secondaryColor: "#020617",
+      tertiaryColor: "#020617",
+      actorBorder: "#10b981",
+      actorBkg: "#0f172a",
+      actorTextColor: "#f8fafc",
       signalColor: "#f59e0b",
-      labelBoxBkgColor: "#111113",
-      labelBoxBorderColor: "#8b5cf6",
-      labelTextColor: "#e5e5e5",
-      noteBkgColor: "#1a1325",
-      noteBorderColor: "#8b5cf6",
-      noteTextColor: "#d8d8dc",
-      background: "#050505",
+      labelBoxBkgColor: "#0f172a",
+      labelBoxBorderColor: "#10b981",
+      labelTextColor: "#f8fafc",
+      noteBkgColor: "#020617",
+      noteBorderColor: "#10b981",
+      noteTextColor: "#cbd5e1",
+      background: "#020617",
     },
   });
   mermaidConfigured = true;
@@ -276,7 +276,7 @@ async function renderMermaid() {
 
 async function loadPage(pageSlug) {
   currentPageEl.textContent = pageLabel(pageSlug);
-  document.title = `${pageLabel(pageSlug)} | SOUS Docs`;
+  document.title = `${pageLabel(pageSlug)} | sous Docs`;
   renderNavigation(pageSlug, searchEl.value);
 
   try {
