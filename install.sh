@@ -162,8 +162,20 @@ trap cleanup EXIT INT TERM
 src="$tmp_root/sous"
 out="$tmp_root/$bin"
 
-log "Cloning: $REPO ($REF)"
-git clone --depth 1 --branch "$REF" "$REPO" "$src" >/dev/null 2>&1 || die "git clone failed (repo=$REPO ref=$REF)"
+repo_clone="$REPO"
+repo_display="$REPO"
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+  case "$REPO" in
+    https://github.com/*)
+      # x-access-token works for both classic and fine-grained tokens.
+      repo_clone="https://x-access-token:${GITHUB_TOKEN}@${REPO#https://}"
+      repo_display="$(printf '%s' "$REPO" | sed 's#^https://#https://***@#')"
+      ;;
+  esac
+fi
+
+log "Cloning: $repo_display ($REF)"
+git clone --depth 1 --branch "$REF" "$repo_clone" "$src" >/dev/null 2>&1 || die "git clone failed (repo=$repo_display ref=$REF)"
 
 log "Building: $bin"
 gomodcache="$tmp_root/gomodcache"

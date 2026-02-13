@@ -27,6 +27,15 @@ macOS/Linux (and Windows via Git Bash/MSYS2/Cygwin/WSL):
 curl -fsSL https://raw.githubusercontent.com/osvaldoandrade/sous/main/install.sh | sh
 ```
 
+If this repo is private, raw URLs return 404. Use the GitHub API with a token:
+
+```bash
+GITHUB_TOKEN=... curl -fsSL \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github.raw" \
+  "https://api.github.com/repos/osvaldoandrade/sous/contents/install.sh?ref=main" | sh
+```
+
 Install to a specific directory or ref:
 
 ```bash
