@@ -5,8 +5,6 @@ const NAV = [
       ["Get Started", "Get-Started"],
       ["Overview", "Overview"],
       ["Architecture", "Architecture"],
-      ["Glossary", "Glossary"],
-      ["Requirements", "Requirements"],
     ],
   },
   {
