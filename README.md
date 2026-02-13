@@ -17,6 +17,22 @@ make test
 make build
 ```
 
+## Install CLI
+
+Requires `git` and `go`.
+
+macOS/Linux (and Windows via Git Bash/MSYS2/Cygwin/WSL):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/osvaldoandrade/sous/main/install.sh | sh
+```
+
+Install to a specific directory or ref:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/osvaldoandrade/sous/main/install.sh | sh -s -- --dir "$HOME/.local/bin" --ref main
+```
+
 ## Configuration
 
 Copy and edit:
