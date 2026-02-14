@@ -27,6 +27,12 @@ macOS/Linux (and Windows via Git Bash/MSYS2/Cygwin/WSL):
 curl -fsSL https://raw.githubusercontent.com/osvaldoandrade/sous/main/install.sh | sh
 ```
 
+Or via npm (installs a prebuilt binary from GitHub Releases):
+
+```bash
+npm install -g @osvaldoandrade/cs@latest
+```
+
 If this repo is private, raw URLs return 404. Use the GitHub API with a token:
 
 ```bash
@@ -39,8 +45,11 @@ GITHUB_TOKEN=... curl -fsSL \
 Install to a specific directory or ref:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/osvaldoandrade/sous/main/install.sh | sh -s -- --dir "$HOME/.local/bin" --ref main
+SOUS_BIN_DIR="$HOME/.local/bin" SOUS_REF=main \
+  curl -fsSL https://raw.githubusercontent.com/osvaldoandrade/sous/main/install.sh | sh
 ```
+
+If the repo is private, `install.sh` also supports cloning with `GITHUB_TOKEN`/`GH_TOKEN`.
 
 ## Configuration
 

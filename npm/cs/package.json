@@ -1,0 +1,31 @@
+{
+  "name": "@osvaldoandrade/cs",
+  "version": "0.0.0-dev",
+  "description": "code-sous CLI (installs a prebuilt Go binary from GitHub Releases)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/osvaldoandrade/sous.git",
+    "directory": "npm/cs"
+  },
+  "bugs": {
+    "url": "https://github.com/osvaldoandrade/sous/issues"
+  },
+  "homepage": "https://github.com/osvaldoandrade/sous#readme",
+  "bin": {
+    "cs": "bin/cs"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
+

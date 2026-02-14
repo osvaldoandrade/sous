@@ -1,240 +1,165 @@
-#!/usr/bin/env sh
+#!/bin/sh
 set -eu
 
-REPO_DEFAULT="https://github.com/osvaldoandrade/sous.git"
-REF_DEFAULT="main"
-BIN_NAME="cs"
+SOUS_REPO_URL="${SOUS_REPO_URL:-}"
+SOUS_REF="${SOUS_REF:-main}" # branch, tag, or commit sha
+SOUS_BIN_NAME="${SOUS_BIN_NAME:-}"
+SOUS_PKG="${SOUS_PKG:-}"
+SOUS_BIN_DIR="${SOUS_BIN_DIR:-}"
 
-usage() {
-  cat <<'EOF'
-Usage:
-  curl -fsSL https://raw.githubusercontent.com/osvaldoandrade/sous/main/install.sh | sh
+# Backward-compatible env vars (deprecated).
+if [ -z "${SOUS_REPO_URL:-}" ] && [ -n "${SOUS_REPO:-}" ]; then
+	SOUS_REPO_URL="$SOUS_REPO"
+fi
+if [ -z "${SOUS_BIN_DIR:-}" ] && [ -n "${SOUS_INSTALL_DIR:-}" ]; then
+	SOUS_BIN_DIR="$SOUS_INSTALL_DIR"
+fi
 
-Options (when using: sh -s -- ...):
-  --repo <url>        Git repo URL (default: https://github.com/osvaldoandrade/sous.git)
-  --ref <ref>         Git ref (branch/tag) (default: main)
-  --dir <path>        Install dir (default: first writable dir in $PATH, else ~/.local/bin)
-  -h, --help          Show help
+SOUS_REPO_URL="${SOUS_REPO_URL:-https://github.com/osvaldoandrade/sous.git}"
 
-Env vars (alternative to flags):
-  SOUS_REPO, SOUS_REF, SOUS_INSTALL_DIR
+say() { printf '%s\n' "$*"; }
+warn() { printf '%s\n' "warning: $*" >&2; }
+die() { printf '%s\n' "error: $*" >&2; exit 1; }
+need() { command -v "$1" >/dev/null 2>&1 || die "missing dependency: $1"; }
 
-Notes:
-  - Requires: git, go
-  - Windows support assumes a POSIX shell (Git Bash/MSYS2/Cygwin/WSL).
-EOF
-}
-
-log() { printf '%s\n' "$*" >&2; }
-die() { log "error: $*"; exit 1; }
-
-need_cmd() {
-  command -v "$1" >/dev/null 2>&1 || die "missing dependency: $1"
-}
-
-mktemp_dir() {
-  if command -v mktemp >/dev/null 2>&1; then
-    d="$(mktemp -d 2>/dev/null || mktemp -d -t sous-install 2>/dev/null)" || return 1
-    printf '%s\n' "$d"
-    return 0
-  fi
-  d="/tmp/sous-install.$$"
-  (umask 077 && mkdir -p "$d") || return 1
-  printf '%s\n' "$d"
-}
-
-first_writable_path_dir() {
-  old_ifs=$IFS
-  IFS=:
-  for d in $PATH; do
-    [ -n "$d" ] || continue
-    [ "$d" = "." ] && continue
-    if [ -d "$d" ] && [ -w "$d" ]; then
-      printf '%s\n' "$d"
-      IFS=$old_ifs
-      return 0
-    fi
-  done
-  IFS=$old_ifs
-  return 1
-}
-
-path_contains() {
-  case ":${PATH:-}:" in
-    *":$1:"*) return 0 ;;
-  esac
-  return 1
-}
-
-add_path_hint() {
-  install_dir=$1
-  if path_contains "$install_dir"; then
-    return 0
-  fi
-
-  log ""
-  log "Add '$install_dir' to your PATH (example):"
-  log "  export PATH=\"$install_dir:\$PATH\""
-  log ""
-  log "Common files to update:"
-  log "  - ~/.profile"
-  log "  - ~/.bashrc"
-  log "  - ~/.zshrc"
-}
-
-REPO="${SOUS_REPO:-$REPO_DEFAULT}"
-REF="${SOUS_REF:-$REF_DEFAULT}"
-INSTALL_DIR="${SOUS_INSTALL_DIR:-}"
-
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --repo)
-      [ $# -ge 2 ] || die "--repo requires a value"
-      REPO=$2
-      shift 2
-      ;;
-    --ref)
-      [ $# -ge 2 ] || die "--ref requires a value"
-      REF=$2
-      shift 2
-      ;;
-    --dir)
-      [ $# -ge 2 ] || die "--dir requires a value"
-      INSTALL_DIR=$2
-      shift 2
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      die "unknown argument: $1 (use --help)"
-      ;;
-  esac
-done
-
-need_cmd git
-need_cmd go
-
-uname_s="$(uname -s 2>/dev/null || printf 'unknown')"
+uname_s="$(uname -s 2>/dev/null || printf unknown)"
+os="unknown"
 case "$uname_s" in
-  Darwin) os=darwin ;;
-  Linux) os=linux ;;
-  MINGW*|MSYS*|CYGWIN*|Windows_NT) os=windows ;;
-  *) os=unknown ;;
+	Darwin*) os="darwin" ;;
+	Linux*) os="linux" ;;
+	MINGW* | MSYS* | CYGWIN*) os="windows" ;;
 esac
 
-bin="$BIN_NAME"
-case "$os" in
-  windows) bin="${BIN_NAME}.exe" ;;
-esac
-
-if [ -z "$INSTALL_DIR" ]; then
-  home="${HOME:-}"
-
-  # Prefer common bin dirs that are typically already in PATH.
-  for d in "/opt/homebrew/bin" "/usr/local/bin" "${home:+$home/.local/bin}" "${home:+$home/bin}"; do
-    [ -n "$d" ] || continue
-    if path_contains "$d" && [ -d "$d" ] && [ -w "$d" ]; then
-      INSTALL_DIR="$d"
-      break
-    fi
-  done
+exe=""
+if [ "$os" = "windows" ]; then
+	exe=".exe"
 fi
 
-if [ -z "$INSTALL_DIR" ]; then
-  if d="$(first_writable_path_dir)"; then
-    INSTALL_DIR="$d"
-  elif path_contains "/usr/local/bin"; then
-    # We'll attempt sudo at install time if needed.
-    INSTALL_DIR="/usr/local/bin"
-  else
-    home="${HOME:-}"
-    [ -n "$home" ] || die "HOME is not set and no writable dir found in PATH; set SOUS_INSTALL_DIR"
-    INSTALL_DIR="$home/.local/bin"
-  fi
+find_writable_path_dir() {
+	old_ifs="$IFS"
+	IFS=":"
+	for p in $PATH; do
+		[ -n "${p:-}" ] || continue
+		[ "$p" = "." ] && continue
+		if [ -d "$p" ] && [ -w "$p" ]; then
+			IFS="$old_ifs"
+			printf '%s' "$p"
+			return 0
+		fi
+	done
+	IFS="$old_ifs"
+	return 1
+}
+
+detect_cli_pkg_and_bin() {
+	# Prefer a single ./cmd/*-cli directory as the "CLI".
+	# Repo authors can override by setting SOUS_PKG and SOUS_BIN_NAME explicitly.
+	candidate=""
+	count=0
+	for d in "$1"/cmd/*-cli; do
+		[ -d "$d" ] || continue
+		candidate="$d"
+		count=$((count + 1))
+	done
+	if [ "$count" -eq 1 ]; then
+		base="$(basename "$candidate")" # e.g. cs-cli
+		if [ -z "${SOUS_PKG:-}" ]; then
+			SOUS_PKG="./cmd/$base"
+		fi
+		if [ -z "${SOUS_BIN_NAME:-}" ]; then
+			case "$base" in
+				*-cli) SOUS_BIN_NAME="${base%-cli}" ;; # cs-cli -> cs
+				*) SOUS_BIN_NAME="$base" ;;
+			esac
+		fi
+		return 0
+	fi
+	return 1
+}
+
+bin_dir="$SOUS_BIN_DIR"
+if [ -z "$bin_dir" ]; then
+	if bin_dir="$(find_writable_path_dir 2>/dev/null)"; then
+		:
+	else
+		if [ "$os" = "windows" ]; then
+			bin_dir="${HOME}/bin"
+		else
+			bin_dir="${HOME}/.local/bin"
+		fi
+	fi
 fi
 
-tmp_root="$(mktemp_dir)" || die "failed to create temp dir"
-cleanup() { rm -rf "$tmp_root"; }
+mkdir -p "$bin_dir"
+
+need go
+need git
+
+tmp_dir="$(mktemp -d 2>/dev/null || mktemp -d -t sous-install)"
+cleanup() { rm -rf "$tmp_dir"; }
 trap cleanup EXIT INT TERM
 
-src="$tmp_root/sous"
-out="$tmp_root/$bin"
+src_dir="$tmp_dir/src"
+mkdir -p "$src_dir"
 
-repo_clone="$REPO"
-repo_display="$REPO"
-if [ -n "${GITHUB_TOKEN:-}" ]; then
-  case "$REPO" in
-    https://github.com/*)
-      # x-access-token works for both classic and fine-grained tokens.
-      repo_clone="https://x-access-token:${GITHUB_TOKEN}@${REPO#https://}"
-      repo_display="$(printf '%s' "$REPO" | sed 's#^https://#https://***@#')"
-      ;;
-  esac
+repo_clone="$SOUS_REPO_URL"
+repo_display="$SOUS_REPO_URL"
+token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+if [ -n "${token:-}" ]; then
+	case "$SOUS_REPO_URL" in
+		https://github.com/*)
+			# x-access-token works for both classic and fine-grained tokens.
+			repo_clone="https://x-access-token:${token}@${SOUS_REPO_URL#https://}"
+			repo_display="$(printf '%s' "$SOUS_REPO_URL" | sed 's#^https://#https://***@#')"
+			;;
+	esac
 fi
 
-log "Cloning: $repo_display ($REF)"
-git clone --depth 1 --branch "$REF" "$repo_clone" "$src" >/dev/null 2>&1 || die "git clone failed (repo=$repo_display ref=$REF)"
+git init -q "$src_dir"
+git -C "$src_dir" remote add origin "$repo_clone"
+git -C "$src_dir" fetch -q --depth 1 origin "$SOUS_REF"
+git -C "$src_dir" checkout -q FETCH_HEAD
 
-log "Building: $bin"
-gomodcache="$tmp_root/gomodcache"
-gocache="$tmp_root/gocache"
-gopath="$tmp_root/gopath"
-mkdir -p "$gomodcache" "$gocache" "$gopath" || die "failed to create go cache dirs"
+if [ -z "${SOUS_PKG:-}" ] || [ -z "${SOUS_BIN_NAME:-}" ]; then
+	detect_cli_pkg_and_bin "$src_dir" || true
+fi
 
-(cd "$src" && \
-  CGO_ENABLED=0 \
-  GOPROXY="${GOPROXY:-https://proxy.golang.org|direct}" \
-  GOPATH="$gopath" \
-  GOMODCACHE="$gomodcache" \
-  GOCACHE="$gocache" \
-  go build -trimpath -ldflags "-s -w" -o "$out" ./cmd/cs-cli \
-) || die "go build failed"
+if [ -z "${SOUS_PKG:-}" ]; then
+	die "could not detect CLI package; set SOUS_PKG (example: ./cmd/cs-cli)"
+fi
+if [ -z "${SOUS_BIN_NAME:-}" ]; then
+	base="$(basename "$SOUS_PKG")"
+	case "$base" in
+		*-cli) SOUS_BIN_NAME="${base%-cli}" ;;
+		*) SOUS_BIN_NAME="$base" ;;
+	esac
+fi
 
-can_write_dir=0
-if [ -d "$INSTALL_DIR" ]; then
-  [ -w "$INSTALL_DIR" ] && can_write_dir=1
+say "Installing ${SOUS_BIN_NAME}${exe} (${SOUS_REF}) from ${repo_display}"
+
+out_path="$tmp_dir/${SOUS_BIN_NAME}${exe}"
+(
+	cd "$src_dir"
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$out_path" "$SOUS_PKG"
+)
+
+dest_path="${bin_dir%/}/${SOUS_BIN_NAME}${exe}"
+if command -v install >/dev/null 2>&1; then
+	install -m 0755 "$out_path" "$dest_path"
 else
-  if mkdir -p "$INSTALL_DIR" >/dev/null 2>&1; then
-    [ -w "$INSTALL_DIR" ] && can_write_dir=1
-  fi
+	cp "$out_path" "$dest_path"
+	chmod 0755 "$dest_path" 2>/dev/null || true
 fi
 
-if [ "$can_write_dir" -eq 1 ]; then
-  log "Installing to: $INSTALL_DIR/$bin"
-  if command -v install >/dev/null 2>&1; then
-    install -m 0755 "$out" "$INSTALL_DIR/$bin" || die "install failed"
-  else
-    cp "$out" "$INSTALL_DIR/$bin" || die "copy failed"
-    chmod 0755 "$INSTALL_DIR/$bin" >/dev/null 2>&1 || true
-  fi
-else
-  if [ "$os" != "windows" ] && command -v sudo >/dev/null 2>&1; then
-    log "Installing with sudo to: $INSTALL_DIR/$bin"
-    sudo mkdir -p "$INSTALL_DIR" || die "sudo mkdir failed"
-    if command -v install >/dev/null 2>&1; then
-      sudo install -m 0755 "$out" "$INSTALL_DIR/$bin" || die "sudo install failed"
-    else
-      sudo cp "$out" "$INSTALL_DIR/$bin" || die "sudo copy failed"
-      sudo chmod 0755 "$INSTALL_DIR/$bin" >/dev/null 2>&1 || true
-    fi
-  else
-    home="${HOME:-}"
-    [ -n "$home" ] || die "install dir not writable and HOME is not set; set SOUS_INSTALL_DIR"
-    INSTALL_DIR="$home/.local/bin"
-    mkdir -p "$INSTALL_DIR" || die "failed to create install dir: $INSTALL_DIR"
-    log "Install dir not writable; installed to: $INSTALL_DIR/$bin"
-    if command -v install >/dev/null 2>&1; then
-      install -m 0755 "$out" "$INSTALL_DIR/$bin" || die "install failed"
-    else
-      cp "$out" "$INSTALL_DIR/$bin" || die "copy failed"
-      chmod 0755 "$INSTALL_DIR/$bin" >/dev/null 2>&1 || true
-    fi
-  fi
-fi
-
-log ""
-log "Installed: $INSTALL_DIR/$bin"
-
-add_path_hint "$INSTALL_DIR"
+say "Installed to: $dest_path"
+case ":$PATH:" in
+	*":$bin_dir:"*) ;;
+	*)
+		warn "install dir is not on PATH: $bin_dir"
+		if [ "$os" = "windows" ]; then
+			warn "add it to PATH (Git Bash): export PATH=\"$bin_dir:\$PATH\" (persist in ~/.bashrc)"
+		else
+			warn "add it to PATH (bash/zsh): export PATH=\"$bin_dir:\$PATH\" (persist in ~/.profile or ~/.zshrc)"
+		fi
+		;;
+esac

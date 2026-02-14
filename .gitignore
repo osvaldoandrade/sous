@@ -1,3 +1,5 @@
 .DS_Store
 bin/
 __pycache__/
+dist/
+npm/**/node_modules/
