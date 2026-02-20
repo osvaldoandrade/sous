@@ -33,24 +33,6 @@ Or via npm (installs a prebuilt binary from GitHub Releases):
 npm install -g @osvaldoandrade/cs@latest
 ```
 
-If this repo is private, raw URLs return 404. Use the GitHub API with a token:
-
-```bash
-GITHUB_TOKEN=... curl -fsSL \
-  -H "Authorization: Bearer $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github.raw" \
-  "https://api.github.com/repos/osvaldoandrade/sous/contents/install.sh?ref=main" | sh
-```
-
-Install to a specific directory or ref:
-
-```bash
-SOUS_BIN_DIR="$HOME/.local/bin" SOUS_REF=main \
-  curl -fsSL https://raw.githubusercontent.com/osvaldoandrade/sous/main/install.sh | sh
-```
-
-If the repo is private, `install.sh` also supports cloning with `GITHUB_TOKEN`/`GH_TOKEN`.
-
 ## Configuration
 
 Copy and edit:
