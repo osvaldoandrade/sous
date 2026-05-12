@@ -287,3 +287,20 @@ The CLI implements `cs.kv` as:
 - an optional remote provider when `--kv-endpoint` exists
 
 The CLI blocks network egress unless `http.allowHosts` exists in the manifest.
+
+## Cross-runtime parity harness
+
+The cs-js adapter is the reference implementation for the runtime-parity
+invariant. The harness under `internal/runtime/parity` runs a shared
+JSON fixture corpus (`test/parity/fixtures/`) against every runtime
+registered with `runtime.DefaultRegistry`. Today that's only cs-js;
+cs-python and cs-wasm auto-join the matrix once their adapters land and
+the fixtures grow a per-runtime `files` entry.
+
+See `docs/17-testing.md` (section "Runtime parity harness") for the
+fixture schema, the comparison rules, and the recipe for adding new
+scenarios or new adapters. Run the suite locally with:
+
+```bash
+make test-parity
+```

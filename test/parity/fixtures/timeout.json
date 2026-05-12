@@ -1,0 +1,28 @@
+{
+  "name": "timeout",
+  "description": "Runs past the deadline; runtime must surface CS_RUNTIME_TIMEOUT.",
+  "manifest": {
+    "schema": "cs.function.script.v1",
+    "runtime": "cs-js",
+    "entry": "function.js",
+    "handler": "default",
+    "limits": {"timeoutMs": 100, "memoryMb": 64, "maxConcurrency": 1},
+    "capabilities": {
+      "kv":    {"prefixes": ["ctr:"], "ops": ["get", "set", "del"]},
+      "codeq": {"publishTopics": ["jobs.*"]},
+      "http":  {"allowHosts": ["example.com"], "timeoutMs": 1500}
+    }
+  },
+  "files": {
+    "cs-js": {
+      "function.js": "export default async function handle(event, ctx) { while (true) { /* spin past deadline */ } }"
+    }
+  },
+  "trigger": {"type": "api", "source": {}},
+  "event": {},
+  "deadlineOffsetMs": 100,
+  "expected": {
+    "status": "timeout",
+    "resolvedCode": "CS_RUNTIME_TIMEOUT"
+  }
+}

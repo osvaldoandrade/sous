@@ -5,7 +5,7 @@ BIN_DIR := bin
 
 CMDS := cs-control cs-http-gateway cs-invoker-pool cs-scheduler cs-cadence-poller cs-cli
 
-.PHONY: test lint build clean integration test-contract slo-validate dashboards-validate
+.PHONY: test lint build clean integration test-contract slo-validate dashboards-validate test-parity
 
 test:
 	$(GO) test ./...
@@ -64,3 +64,12 @@ dashboards-validate:
 		echo "validate $$f"; \
 		python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$$f"; \
 	done
+
+# test-parity drives the cross-runtime parity harness (E3.04). It loads
+# every fixture under test/parity/fixtures and dispatches it against
+# every runtime registered with runtime.DefaultRegistry. Today that's
+# only cs-js; cs-python and cs-wasm auto-join the matrix once their
+# init() registrations land and the fixtures grow per-runtime "files"
+# entries. See docs/17-testing.md "Runtime parity harness".
+test-parity:
+	$(GO) test ./internal/runtime/parity/...
