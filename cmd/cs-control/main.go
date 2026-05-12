@@ -28,6 +28,7 @@ import (
 	"github.com/osvaldoandrade/sous/internal/plugins/messaging"
 	"github.com/osvaldoandrade/sous/internal/plugins/persistence"
 	"github.com/osvaldoandrade/sous/internal/plugins/registry"
+	cronpkg "github.com/osvaldoandrade/sous/internal/scheduler"
 )
 
 type server struct {
@@ -721,6 +722,10 @@ func (s *server) createSchedule(w http.ResponseWriter, r *http.Request) {
 		Payload:       req.Payload,
 		Enabled:       true,
 		CreatedAtMS:   time.Now().UnixMilli(),
+		Kind:          req.Kind,
+		Cron:          req.Cron,
+		TZ:            req.TZ,
+		JitterMs:      req.JitterMs,
 	}
 	if err := s.store.PutSchedule(r.Context(), rec); err != nil {
 		cserrors.WriteHTTP(w, err, requestID(r))
@@ -820,8 +825,45 @@ func validateScheduleRequest(req *api.CreateScheduleRequest) error {
 	if len(req.Name) < 3 || len(req.Name) > 64 {
 		return fmt.Errorf("invalid schedule name")
 	}
-	if req.EverySeconds < 1 || req.EverySeconds > 86400 {
-		return fmt.Errorf("every_seconds out of range")
+	// E4.01: schedules are either interval (every_seconds) or cron, never
+	// both. Default Kind from whichever field the caller supplied so the
+	// CLI does not need to set kind explicitly.
+	req.Kind = strings.TrimSpace(req.Kind)
+	req.Cron = strings.TrimSpace(req.Cron)
+	req.TZ = strings.TrimSpace(req.TZ)
+	if req.Kind == "" {
+		if req.Cron != "" {
+			req.Kind = "cron"
+		} else {
+			req.Kind = "interval"
+		}
+	}
+	// Mutual-exclusion check is the same regardless of which side of the
+	// pair the user populated, so fail-fast before the kind-specific
+	// validation below.
+	if req.Cron != "" && req.EverySeconds != 0 {
+		return fmt.Errorf("cron and every_seconds are mutually exclusive")
+	}
+	switch req.Kind {
+	case "interval":
+		if req.EverySeconds < 1 || req.EverySeconds > 86400 {
+			return fmt.Errorf("every_seconds out of range")
+		}
+	case "cron":
+		if req.Cron == "" {
+			return fmt.Errorf("cron expression required when kind=cron")
+		}
+		if err := cronpkg.ValidateCron(req.Cron); err != nil {
+			return fmt.Errorf("invalid cron expression: %v", err)
+		}
+		if _, err := cronpkg.LoadLocation(req.TZ); err != nil {
+			return fmt.Errorf("invalid timezone: %v", err)
+		}
+	default:
+		return fmt.Errorf("invalid schedule kind: %q", req.Kind)
+	}
+	if req.JitterMs < 0 || req.JitterMs > 3_600_000 {
+		return fmt.Errorf("jitter_ms out of range")
 	}
 	if req.OverlapPolicy == "" {
 		req.OverlapPolicy = "skip"

@@ -226,6 +226,21 @@ type ScheduleRecord struct {
 	Payload       any         `json:"payload,omitempty"`
 	Enabled       bool        `json:"enabled"`
 	CreatedAtMS   int64       `json:"created_at_ms"`
+	// E4.01: cron schedule trigger. New fields are append-at-bottom and
+	// optional so existing interval schedules round-trip unchanged.
+	// Kind is "interval" (default, backward-compatible) or "cron".
+	Kind string `json:"kind,omitempty"`
+	// Cron is a 5-field CRON expression (minute hour day-of-month month
+	// day-of-week). Ignored when Kind is empty or "interval".
+	Cron string `json:"cron,omitempty"`
+	// TZ is an IANA timezone (e.g. "America/Sao_Paulo"). Defaults to
+	// "UTC" when empty. Used to resolve wall-clock semantics for cron
+	// schedules across DST transitions.
+	TZ string `json:"tz,omitempty"`
+	// JitterMs spreads tick fan-out by adding a deterministic offset
+	// in [0, JitterMs) milliseconds to the next computed fire time.
+	// Optional; 0 disables jitter.
+	JitterMs int64 `json:"jitter_ms,omitempty"`
 }
 
 type ScheduleState struct {
@@ -320,6 +335,13 @@ type CreateScheduleRequest struct {
 	OverlapPolicy string      `json:"overlap_policy"`
 	Ref           ScheduleRef `json:"ref"`
 	Payload       any         `json:"payload"`
+	// E4.01: optional cron trigger inputs. Mixing Cron with EverySeconds
+	// is rejected by validateScheduleRequest in cs-control. Kind defaults
+	// to "interval" when EverySeconds is set and "cron" when Cron is set.
+	Kind     string `json:"kind,omitempty"`
+	Cron     string `json:"cron,omitempty"`
+	TZ       string `json:"tz,omitempty"`
+	JitterMs int64  `json:"jitter_ms,omitempty"`
 }
 
 type CreateWorkerBindingRequest struct {

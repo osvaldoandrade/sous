@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"hash/fnv"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/osvaldoandrade/sous/internal/plugins/messaging"
 	"github.com/osvaldoandrade/sous/internal/plugins/persistence"
 	"github.com/osvaldoandrade/sous/internal/plugins/registry"
+	cronpkg "github.com/osvaldoandrade/sous/internal/scheduler"
 )
 
 type scheduler struct {
@@ -25,6 +27,16 @@ type scheduler struct {
 	broker   messaging.Provider
 	logger   *observability.Logger
 	isLeader atomic.Bool
+	// nowFn is the wall-clock provider; tests inject a fake clock here.
+	// When nil the scheduler uses time.Now.
+	nowFn func() time.Time
+}
+
+func (s *scheduler) now() time.Time {
+	if s.nowFn != nil {
+		return s.nowFn()
+	}
+	return time.Now()
 }
 
 func main() {
@@ -126,7 +138,7 @@ func (s *scheduler) tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	now := time.Now().UnixMilli()
+	now := s.now().UnixMilli()
 	maxCatchup := max(1, s.cfg.CSScheduler.MaxCatchupTick)
 	for _, sch := range schedules {
 		if !sch.Enabled {
@@ -146,17 +158,88 @@ func (s *scheduler) tick(ctx context.Context) error {
 				s.logger.Warn(ctx, "schedule publish failed: "+err.Error())
 			}
 			state.TickSeq++
-			state.NextTickMS += int64(sch.EverySeconds) * 1000
+			state.NextTickMS = s.advanceNextTickMS(sch, state.NextTickMS)
 			published++
 		}
 		if state.NextTickMS <= now && published >= maxCatchup {
-			state.NextTickMS = now + int64(sch.EverySeconds*1000)
+			// Catchup cap hit; jump forward from `now` so we resume
+			// fresh next tick instead of looping again immediately.
+			state.NextTickMS = s.advanceNextTickMS(sch, now)
 		}
 		if err := s.store.PutScheduleState(ctx, sch.Tenant, sch.Namespace, sch.Name, state); err != nil {
 			s.logger.Warn(ctx, "schedule state write failed: "+err.Error())
 		}
 	}
 	return nil
+}
+
+// advanceNextTickMS computes the schedule's next tick in absolute Unix-ms.
+//
+// For interval schedules (default; Kind="" or "interval") it adds
+// every_seconds*1000 to the prior tick. For cron schedules it parses
+// sch.Cron (skipping invalid expressions by falling back to a safe 60s
+// retry) and evaluates Schedule.NextAfter in the schedule's timezone.
+// Jitter, when configured, adds a deterministic per-tick offset so that
+// many schedules sharing the same cron expression do not stampede the
+// downstream codeQ.
+func (s *scheduler) advanceNextTickMS(sch api.ScheduleRecord, prevMS int64) int64 {
+	if isCron(sch) {
+		base := s.cronNextMS(sch, prevMS)
+		return applyJitter(base, sch.JitterMs, sch)
+	}
+	if sch.EverySeconds <= 0 {
+		// Defensive: avoid a busy loop if a malformed record sneaks in.
+		// 60s is the smallest unit the cron path supports and a sane
+		// default for unspecified interval schedules.
+		return prevMS + 60_000
+	}
+	return applyJitter(prevMS+int64(sch.EverySeconds)*1000, sch.JitterMs, sch)
+}
+
+// isCron reports whether a schedule should be evaluated as cron. We
+// accept either Kind="cron" or a non-empty Cron string for ergonomics
+// (the cs-control validator already enforces a canonical Kind value).
+func isCron(sch api.ScheduleRecord) bool {
+	return sch.Kind == "cron" || (sch.Kind == "" && sch.Cron != "")
+}
+
+// cronNextMS evaluates the cron schedule's next fire time strictly after
+// `prevMS`. On any parse or zoneinfo error the function logs at warn and
+// returns a 60s retry so a broken schedule never wedges the loop.
+func (s *scheduler) cronNextMS(sch api.ScheduleRecord, prevMS int64) int64 {
+	expr, err := cronpkg.Parse(sch.Cron)
+	if err != nil {
+		s.logger.Warn(context.Background(), "cron parse failed for "+sch.Name+": "+err.Error())
+		return prevMS + 60_000
+	}
+	loc, err := cronpkg.LoadLocation(sch.TZ)
+	if err != nil {
+		s.logger.Warn(context.Background(), "cron timezone load failed for "+sch.Name+": "+err.Error())
+		return prevMS + 60_000
+	}
+	next := expr.NextAfter(time.UnixMilli(prevMS), loc)
+	if next.IsZero() {
+		return prevMS + 60_000
+	}
+	return next.UnixMilli()
+}
+
+// applyJitter spreads ticks deterministically. The offset is keyed by
+// (tenant, namespace, name) so the same schedule always gets the same
+// offset for the same target second; replicas elected as leader at
+// different times produce identical schedules.
+func applyJitter(baseMS, jitterMS int64, sch api.ScheduleRecord) int64 {
+	if jitterMS <= 0 {
+		return baseMS
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(sch.Tenant))
+	_, _ = h.Write([]byte{'|'})
+	_, _ = h.Write([]byte(sch.Namespace))
+	_, _ = h.Write([]byte{'|'})
+	_, _ = h.Write([]byte(sch.Name))
+	offset := int64(h.Sum64() % uint64(jitterMS))
+	return baseMS + offset
 }
 
 func (s *scheduler) publishScheduleTick(ctx context.Context, sch api.ScheduleRecord, tickSeq int64) error {
@@ -197,7 +280,7 @@ func (s *scheduler) publishScheduleTick(ctx context.Context, sch api.ScheduleRec
 			"tick_seq":      tickSeq,
 		}},
 		Principal:  principal,
-		DeadlineMS: time.Now().Add(time.Duration(meta.Config.TimeoutMS) * time.Millisecond).UnixMilli(),
+		DeadlineMS: s.now().Add(time.Duration(meta.Config.TimeoutMS) * time.Millisecond).UnixMilli(),
 		Event:      sch.Payload,
 	}
 	return s.broker.PublishInvocation(ctx, inv)
