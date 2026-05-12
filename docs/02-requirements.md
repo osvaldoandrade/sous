@@ -57,6 +57,14 @@ The platform exists to reduce friction in steps 3 to 5.
 - The control plane must support publish with atomic version assignment.
 - The control plane must support alias CRUD.
 
+The full set of locked semantics — idempotent create, draft TTL,
+monotonic version assignment, version immutability, atomic alias swap,
+read-after-write — is enumerated in
+[`19-entity-state-machines.md` ("Lifecycle invariants")](19-entity-state-machines.md)
+and pinned by the contract suite in
+`cmd/cs-control/lifecycle_contract_test.go`. Any change to a
+lifecycle handler in `cmd/cs-control` must update both.
+
 ### Invocation
 
 - The system must support synchronous HTTP invocation.

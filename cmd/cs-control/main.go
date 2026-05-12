@@ -185,11 +185,16 @@ func (s *server) createFunction(w http.ResponseWriter, r *http.Request) {
 	if rec.Handler == "" {
 		rec.Handler = "default"
 	}
-	if err := s.store.CreateFunction(r.Context(), rec); err != nil {
+	stored, created, err := createFunctionIdempotent(r.Context(), s.store, rec)
+	if err != nil {
 		cserrors.WriteHTTP(w, err, requestID(r))
 		return
 	}
-	api.WriteJSON(w, http.StatusCreated, rec)
+	status := http.StatusCreated
+	if !created {
+		status = http.StatusOK
+	}
+	api.WriteJSON(w, status, stored)
 }
 
 func (s *server) readFunction(w http.ResponseWriter, r *http.Request) {
@@ -323,7 +328,7 @@ func (s *server) publishVersion(w http.ResponseWriter, r *http.Request) {
 		cserrors.WriteHTTP(w, cserrors.New(cserrors.CSValidationFailed, "draft already consumed"), requestID(r))
 		return
 	}
-	if time.Now().UnixMilli() > draft.ExpiresAtMS {
+	if draftExpired(draft, time.Now()) {
 		cserrors.WriteHTTP(w, cserrors.New(cserrors.CSValidationFailed, "draft expired"), requestID(r))
 		return
 	}

@@ -55,6 +55,13 @@ Response `201`:
 }
 ```
 
+Create is idempotent: a second `POST` with the same `(name, runtime,
+entry, handler)` returns `200 OK` with the existing record rather than
+`201`. A second `POST` with a conflicting `runtime`, `entry`, or
+`handler` returns `409 CS_IDEMPOTENCY_CONFLICT`. See
+[`19-entity-state-machines.md`](19-entity-state-machines.md) for the
+full lifecycle invariants.
+
 ### Read
 
 `GET /v1/tenants/{tenant}/namespaces/{namespace}/functions/{name}`
