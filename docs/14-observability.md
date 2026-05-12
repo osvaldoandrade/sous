@@ -165,3 +165,33 @@ parse so it can run in any minimal CI container.
 The platform also exports the raw signals that feed the SLIs above
 (`cs_api_requests_total`, `cs_invocations_total`,
 `cs_invocation_duration_ms_bucket`) for use in dashboards.
+
+## Reference dashboards
+
+`code-sous` ships two Grafana dashboards covering the control and execution
+planes. The JSON files live under
+[`deploy/observability/`](../deploy/observability/) and import cleanly into
+Grafana 10+ (`schemaVersion: 38`).
+
+| File                                              | Title                       | UID                  | Focus                                                  |
+|---------------------------------------------------|-----------------------------|----------------------|--------------------------------------------------------|
+| [`control-plane.json`](../deploy/observability/control-plane.json) | code-sous / Control plane   | `cs-control-plane`   | API request rate, p50/p95/p99 latency, publish latency, alias-swap rate, function-create rate, version growth, draft uploads, control-plane error rate, 30d error-budget burn (99.9% target). |
+| [`execution.json`](../deploy/observability/execution.json)         | code-sous / Execution plane | `cs-execution-plane` | Per-tenant invocations/s by trigger, success vs error split, p50/p95/p99 invocation latency by trigger, error rate by error-code, rate-limit deny rate (HTTP 429), invoker inflight, queue lag, cold-start rate, runtime cache occupancy, top-N functions, activation-log volume. |
+
+Both dashboards expose two template variables:
+
+- `$datasource` — Prometheus datasource selector.
+- `$tenant` — multi-select, derived from
+  `label_values(cs_invocations_total, tenant)`. Defaults to `All`.
+
+Every dashboard carries a top-level `cs_dashboard_version` field so operators
+can detect drift after re-import. The 30-day error-budget burn panel on the
+control-plane dashboard reuses the same 99.9% objective codified in
+`deploy/observability/slo.yaml`, so dashboards and burn-rate alerts share a
+single source of truth.
+
+Import procedures (Grafana UI, HTTP API, Kubernetes sidecar ConfigMap) and
+the expected Prometheus scrape configuration are documented in
+[`deploy/observability/README.md`](../deploy/observability/README.md). The
+Makefile target `make dashboards-validate` JSON-parses every dashboard under
+`deploy/observability/` and is wired into CI alongside `make slo-validate`.

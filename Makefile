@@ -5,7 +5,7 @@ BIN_DIR := bin
 
 CMDS := cs-control cs-http-gateway cs-invoker-pool cs-scheduler cs-cadence-poller cs-cli
 
-.PHONY: test lint build clean integration test-contract slo-validate
+.PHONY: test lint build clean integration test-contract slo-validate dashboards-validate
 
 test:
 	$(GO) test ./...
@@ -48,3 +48,19 @@ slo-validate:
 	else \
 		echo "promtool not installed; YAML parse only"; \
 	fi
+
+# dashboards-validate parses every Grafana dashboard JSON shipped under
+# deploy/observability/ with python3 to catch syntax regressions. The check
+# is intentionally tool-free (no Grafana, no jq) so CI runners only need a
+# stock Python 3 interpreter.
+dashboards-validate:
+	@set -e; \
+	files=$$(ls deploy/observability/*.json 2>/dev/null || true); \
+	if [ -z "$$files" ]; then \
+		echo "dashboards-validate: no JSON files under deploy/observability/"; \
+		exit 1; \
+	fi; \
+	for f in $$files; do \
+		echo "validate $$f"; \
+		python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$$f"; \
+	done
