@@ -88,47 +88,25 @@ type Config struct {
 		} `yaml:"audit"`
 		// Secrets configures the external secret-provider plugin used by
 		// cs-invoker-pool to resolve VersionConfig.Secrets at activation
-		// start (E6.01). The default driver "memory" reads from the
-		// in-process Memory.Seed map and is intended for development and
-		// tests; production deployments select "vault" to delegate to a
-		// HashiCorp Vault KV v2 cluster. See docs/15-security.md
-		// "Secrets" and docs/20-config-reference.md "plugins.secrets".
+		// start (E6.01).
 		Secrets struct {
 			Driver string `yaml:"driver"`
 			Memory struct {
-				// Seed maps logical paths to literal secret values. The
-				// memory driver returns Seed[path] verbatim; missing
-				// paths surface CS_SECRET_NOT_FOUND so unit tests can
-				// exercise the failure path without standing up Vault.
 				Seed map[string]string `yaml:"seed"`
 			} `yaml:"memory"`
 			Vault struct {
-				// Addr is the Vault server base URL, e.g.
-				// "https://vault.example.com:8200". Required when
-				// driver == "vault".
-				Addr string `yaml:"addr"`
-				// Token is the static auth token applied to every
-				// request. Empty strings cause the driver to fall back
-				// to the env var named in TokenEnv (default
-				// "VAULT_TOKEN") so secrets never land in the YAML.
-				Token string `yaml:"token"`
-				// TokenEnv overrides the default VAULT_TOKEN env var
-				// name. Useful in shared-host deployments where
-				// multiple Vault clusters coexist.
-				TokenEnv string `yaml:"token_env"`
-				// KVMount is the KV v2 mount the driver prepends to
-				// every SecretRef.Path on Get(). Defaults to "secret".
-				KVMount string `yaml:"kv_mount"`
-				// Namespace is forwarded as the X-Vault-Namespace
-				// header on each request, supporting Vault Enterprise
-				// multi-tenancy.
+				Addr      string `yaml:"addr"`
+				Token     string `yaml:"token"`
+				TokenEnv  string `yaml:"token_env"`
+				KVMount   string `yaml:"kv_mount"`
 				Namespace string `yaml:"namespace"`
-				// TimeoutMS bounds the HTTP request to the Vault API.
-				// Defaults to 2000 (2s) so a slow Vault never stalls
-				// cold starts beyond the activation deadline.
-				TimeoutMS int `yaml:"timeout_ms"`
+				TimeoutMS int    `yaml:"timeout_ms"`
 			} `yaml:"vault"`
 		} `yaml:"secrets"`
+		// Signing toggles publish-time signature enforcement for E5.02.
+		Signing struct {
+			Required bool `yaml:"required"`
+		} `yaml:"signing"`
 	} `yaml:"plugins"`
 
 	CSControl struct {
