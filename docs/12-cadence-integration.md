@@ -371,6 +371,111 @@ If the poller crashes:
   UUIDv5 derivation above; the dedup store replays the cached completion
   rather than spawning a fresh activation.
 
+## Workflows (E8.01)
+
+E8.01 adds a DecisionTask path so a `cs` function can author a
+Cadence workflow directly — not just an Activity. The poller now
+recognises two binding kinds and dispatches each task surface
+through a dedicated long-poll loop.
+
+### Declaring a workflow binding
+
+A workflow binding adds `kind: "workflow"` to its WorkerBinding.
+The poller pivots from `PollActivityTask` to `PollDecisionTask` at
+binding-refresh time; the rest of the binding shape (domain,
+tasklist, worker_id, pollers.activity, limits, activity_map) is
+unchanged. The `activity_map` is reused as the workflow_type-to-
+function lookup: the keys are the workflow types Cadence may
+deliver, and the values point at the cs function that implements
+each one.
+
+```json
+{
+  "name": "orders-workflows",
+  "kind": "workflow",
+  "domain": "orders",
+  "tasklist": "orders-workflows",
+  "worker_id": "cs-orders-wf-01",
+  "pollers": { "activity": 4 },
+  "limits": { "max_inflight_tasks": 64 },
+  "activity_map": {
+    "OrderWorkflow": { "function": "order-wf", "alias": "prod" }
+  }
+}
+```
+
+Pre-E8.01 bindings have an empty `kind` field and keep their
+Activity-task semantics — the field is append-only and defaults to
+the v0.1 behaviour.
+
+### Workflow author API
+
+The cs-js workflow runtime (`internal/cadence/workflow`) hands the
+user one new host call:
+
+| Name                              | Behaviour                                                                                                                                                                                                                                                                                                  |
+|-----------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `cs.cadence.scheduleActivity(type, input)` | Schedule the named Activity on the workflow's binding's tasklist. On the first Decision the call emits a `ScheduleActivityTask` decision and suspends the workflow; on subsequent Decisions the call returns the recorded result synchronously (or throws when the Activity failed).                |
+
+A minimal workflow looks like:
+
+```js
+export default function(input, ctx) {
+  const result = cs.cadence.scheduleActivity("EchoActivity", input);
+  return { statusCode: 200, body: result };
+}
+```
+
+The same call site runs against a possibly-empty history on every
+Decision; the workflow author writes code as if it were synchronous
+even though execution actually spans multiple Decisions. Async
+functions (`export default async function`) are also supported —
+the executor inspects the returned Promise's state to map the same
+suspension semantics through the async wrapper.
+
+### Replay semantics
+
+Workflow functions are replayed against their history on every
+DecisionTask. The executor walks the history in order and resolves
+each `cs.cadence.scheduleActivity` call against the next recorded
+outcome:
+
+- A matching `ActivityTaskCompleted` event → return the decoded
+  result. The same workflow code MUST run twice with identical
+  decisions or Cadence rejects the response. The test suite under
+  `internal/cadence/workflow` enforces this contract via
+  `TestExecutorReplayDeterminism`.
+- A matching `ActivityTaskFailed` event → throw inside JS; if the
+  workflow does not catch, the executor surfaces a handler error
+  and the poller logs it.
+- No matching event yet → throw an internal "pending" marker and
+  emit a `ScheduleActivityTask` decision. The workflow is now
+  suspended until Cadence delivers the next DecisionTask.
+
+Nondeterministic APIs are blocked at publish time by the static
+linter in `internal/cadence/determinism` (E8.03). Workflow code
+that calls `Date.now`, `Math.random`, `setTimeout`, bare `fetch`,
+etc. is refused with `CS_WORKFLOW_NON_DETERMINISTIC` before it
+ever reaches the executor.
+
+### Deferred features
+
+The v0.1 MVP supports only the smallest useful workflow shape:
+schedule one or more activities, await their results, return. The
+following are deferred to a follow-up task (see the E8.01-followup
+issue for the tracking checklist):
+
+- `cs.cadence.sleep` (Timer decisions)
+- Signal handlers (`cs.cadence.onSignal`)
+- `cs.cadence.continueAsNew`
+- Selector / race over multiple pending activities
+- Child workflows and cross-domain signals
+- Per-activity retry policies, cancellation, search attributes
+- Query handlers and `cs.cadence.sideEffect`
+
+Until then, workflow authors should keep their workflows to a
+linear sequence of scheduleActivity calls.
+
 ## Observability
 
 The poller emits metrics:

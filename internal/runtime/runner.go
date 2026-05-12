@@ -662,6 +662,22 @@ func (r *Runner) bindCadence(rt *goja.Runtime, csObj *goja.Object, req api.Invoc
 	}); err != nil {
 		return err
 	}
+	// E8.01: cs.cadence.scheduleActivity is a workflow-only API. A
+	// cs function running under cs-invoker-pool (i.e., an Activity)
+	// must never reach the workflow host's decision recorder; if it
+	// tried, the call would have no DecisionTask to attach a
+	// decision to and the workflow execution would silently drift
+	// from history. Surface a typed capability-denied error so the
+	// author gets a clear "this is the wrong runtime" hint instead
+	// of an undefined-method TypeError. The real binding (the one
+	// that records ScheduleActivityTask decisions) lives in
+	// internal/cadence/workflow/executor.go and runs inside the
+	// workflow executor's own goja runtime.
+	if err := cad.Set("scheduleActivity", func(call goja.FunctionCall) goja.Value {
+		panic(rt.NewGoError(cserrors.New(cserrors.CSRuntimeCapDenied, "cs.cadence.scheduleActivity is available only inside Cadence workflows (manifest cadence.kind == \"workflow\")")))
+	}); err != nil {
+		return err
+	}
 	return csObj.Set("cadence", cad)
 }
 

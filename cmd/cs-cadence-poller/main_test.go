@@ -30,6 +30,13 @@ type fakeCadenceClient struct {
 	completedFn func(context.Context, string, []byte) error
 	failedFn    func(context.Context, string, string, []byte) error
 	heartbeatFn func(context.Context, string, []byte) error
+	// pollDecisionFn / respondDecisionFn extend the fake for the
+	// E8.01 DecisionTask path. Tests that don't exercise workflow
+	// bindings leave them nil; the methods then return a benign
+	// zero (PollDecisionTask returns ctx.Err so the caller's
+	// retry/backoff doesn't busy-loop in a parked test).
+	pollDecisionFn    func(context.Context, string, string, string) (*cadence.DecisionTask, error)
+	respondDecisionFn func(context.Context, []byte, []cadence.Decision) error
 }
 
 func (f *fakeCadenceClient) PollActivityTask(ctx context.Context, domain, tasklist, workerID string) (*cadence.ActivityTask, error) {
@@ -56,6 +63,20 @@ func (f *fakeCadenceClient) RespondActivityFailed(ctx context.Context, taskToken
 func (f *fakeCadenceClient) RecordActivityHeartbeat(ctx context.Context, taskToken string, details []byte) error {
 	if f.heartbeatFn != nil {
 		return f.heartbeatFn(ctx, taskToken, details)
+	}
+	return nil
+}
+
+func (f *fakeCadenceClient) PollDecisionTask(ctx context.Context, domain, tasklist, workerID string) (*cadence.DecisionTask, error) {
+	if f.pollDecisionFn != nil {
+		return f.pollDecisionFn(ctx, domain, tasklist, workerID)
+	}
+	return nil, ctx.Err()
+}
+
+func (f *fakeCadenceClient) RespondDecisionTaskCompleted(ctx context.Context, taskToken []byte, decisions []cadence.Decision) error {
+	if f.respondDecisionFn != nil {
+		return f.respondDecisionFn(ctx, taskToken, decisions)
 	}
 	return nil
 }

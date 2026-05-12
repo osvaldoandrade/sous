@@ -16,7 +16,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/osvaldoandrade/sous/internal/api"
+	"github.com/osvaldoandrade/sous/internal/bundle"
 	"github.com/osvaldoandrade/sous/internal/cadence"
+	"github.com/osvaldoandrade/sous/internal/cadence/workflow"
 	"github.com/osvaldoandrade/sous/internal/config"
 	cserrors "github.com/osvaldoandrade/sous/internal/errors"
 	"github.com/osvaldoandrade/sous/internal/idempotency"
@@ -174,6 +176,17 @@ func (p *poller) refreshBindings(ctx context.Context) error {
 		p.running[key] = cancel
 		sem := make(chan struct{}, max(1, binding.Limits.MaxInflightTasks))
 		p.bindingSems[key] = sem
+		// E8.01: workflow-kind bindings get a dedicated decision-task
+		// poller that runs the workflow executor inline. Activity-kind
+		// bindings (the default, and any pre-E8.01 binding with an
+		// empty Kind) keep the original ActivityTask poll path so the
+		// dispatch is fully backwards compatible.
+		if binding.Kind == api.CadenceBindingKindWorkflow {
+			for n := 0; n < max(1, binding.Pollers.Activity); n++ {
+				go p.pollDecisionLoop(pollCtx, binding, sem)
+			}
+			continue
+		}
 		for n := 0; n < max(1, binding.Pollers.Activity); n++ {
 			go p.pollLoop(pollCtx, binding, sem)
 		}
@@ -295,6 +308,102 @@ func (p *poller) pollLoop(ctx context.Context, binding api.WorkerBinding, sem ch
 		}
 		p.mu.Unlock()
 	}
+}
+
+// pollDecisionLoop is the workflow-side counterpart to pollLoop. It
+// long-polls Cadence for DecisionTasks on a workflow-kind binding,
+// resolves the workflow function from binding.ActivityMap (keyed by
+// WorkflowType for symmetry with the activity surface), runs the
+// workflow executor inline against the delivered history, and ships
+// the resulting decisions back via RespondDecisionTaskCompleted.
+//
+// E8.01 MVP scope: one decision at a time, no pagination of the
+// embedded history, no parent-workflow/signal routing. The executor
+// itself (internal/cadence/workflow) is the seam where deferred
+// features (Timer, Signal, ContinueAsNew, ...) plug in later. See
+// docs/12-cadence-integration.md "Workflows (E8.01)".
+func (p *poller) pollDecisionLoop(ctx context.Context, binding api.WorkerBinding, sem chan struct{}) {
+	principal := api.Principal{Sub: "sp:cs-cadence-poller", Roles: []string{"role:cadence", "sp:cs-cadence-poller"}}
+	exec := &workflow.Executor{}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case sem <- struct{}{}:
+		default:
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
+		task, err := p.client.PollDecisionTask(ctx, binding.Domain, binding.Tasklist, binding.WorkerID)
+		if err != nil {
+			<-sem
+			p.logger.Warn(ctx, "cadence decision poll failed: "+err.Error())
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		if task == nil || len(task.TaskToken) == 0 {
+			<-sem
+			continue
+		}
+
+		decisions := p.runWorkflowDecision(ctx, binding, principal, exec, task)
+		if respErr := p.client.RespondDecisionTaskCompleted(ctx, task.TaskToken, decisions); respErr != nil {
+			p.logger.Warn(ctx, "respond decision completed failed: "+respErr.Error())
+		}
+		<-sem
+	}
+}
+
+// runWorkflowDecision resolves the workflow function, executes it
+// against the task's history, and returns the decisions to ship back
+// to Cadence. Any precondition failure (missing mapping, missing
+// version, role mismatch, malformed bundle) is logged and returns
+// nil decisions — the caller still acks the task so Cadence stops
+// re-delivering it. A future revision will distinguish "ack with
+// fail" vs "ack with complete" via RespondDecisionTaskFailed.
+func (p *poller) runWorkflowDecision(
+	ctx context.Context,
+	binding api.WorkerBinding,
+	principal api.Principal,
+	exec *workflow.Executor,
+	task *cadence.DecisionTask,
+) []cadence.Decision {
+	ref, ok := binding.ActivityMap[task.WorkflowType]
+	if !ok {
+		p.logger.Warn(ctx, "workflow_type not mapped: "+task.WorkflowType)
+		return nil
+	}
+	version, err := p.store.ResolveVersion(ctx, binding.Tenant, binding.Namespace, ref.Function, ref.Alias, ref.Version)
+	if err != nil {
+		p.logger.Warn(ctx, "workflow resolve_version_failed: "+err.Error())
+		return nil
+	}
+	meta, bundleBytes, err := p.store.GetVersion(ctx, binding.Tenant, binding.Namespace, ref.Function, version)
+	if err != nil {
+		p.logger.Warn(ctx, "workflow version_not_found: "+err.Error())
+		return nil
+	}
+	if !api.IntersectsRoles(meta.Config.Authz.InvokeCadenceRoles, principal) {
+		p.logger.Warn(ctx, "workflow role_missing")
+		return nil
+	}
+	files, err := bundle.ExtractTar(bundleBytes)
+	if err != nil {
+		p.logger.Warn(ctx, "workflow bundle extract failed: "+err.Error())
+		return nil
+	}
+	source, ok := files["function.js"]
+	if !ok {
+		p.logger.Warn(ctx, "workflow bundle missing function.js")
+		return nil
+	}
+	res, err := exec.Execute(ctx, source, task)
+	if err != nil {
+		p.logger.Warn(ctx, "workflow executor error: "+err.Error())
+		return nil
+	}
+	return res.Decisions
 }
 
 func (p *poller) consumeResults(ctx context.Context) {
