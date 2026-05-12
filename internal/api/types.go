@@ -84,6 +84,12 @@ type Principal struct {
 type Trigger struct {
 	Type   string         `json:"type"`
 	Source map[string]any `json:"source"`
+	// Sampling is the optional per-trigger sampling policy introduced by
+	// E7.02. nil (or zero-value) preserves the pre-E7.02 behaviour of
+	// recording every activation; see internal/api/sampling.go for the
+	// policy shape and internal/observability for the Decider contract
+	// that consumes it.
+	Sampling *SamplingPolicy `json:"sampling,omitempty"`
 }
 
 type InvocationRequest struct {
@@ -297,6 +303,11 @@ type ActivationRecord struct {
 	// inherit it from their parent. Used by the /tree endpoint to bound
 	// graph traversal to a single decision tree.
 	RootActivationID string `json:"root_activation_id,omitempty"`
+	// SamplingDecision records the reason this activation was retained or
+	// reduced to a skeleton row. Populated by the E7.02 sampler; empty for
+	// pre-E7.02 records and for triggers using the default always-on
+	// policy. Values are one of the SamplingDecision* constants.
+	SamplingDecision string `json:"sampling_decision,omitempty"`
 }
 
 type CreateFunctionRequest struct {

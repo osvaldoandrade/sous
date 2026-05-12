@@ -138,6 +138,32 @@ until a dedicated YAML key is added. Behaviour on saturation:
 - Queued (codeQ / schedule / cadence) invocations wait until a slot frees
   — no message is lost, draining happens in FIFO order.
 
+### Trigger sampling
+
+E7.02 introduces a per-trigger `sampling` block. It is consumed by
+`cs-invoker-pool` and is independent of the YAML configs above —
+operators publish it through `cs-control` alongside the trigger
+definition (`http`, `schedule`, `cadence`, `codeq`). See
+`docs/14-observability.md` for the full lifecycle contract.
+
+```yaml
+trigger:
+  type: http
+  source:
+    method: POST
+    path: /webhook
+  sampling:
+    mode: tail            # always (default) | head | tail | probabilistic
+    head_per_minute: 50   # required when mode == head
+    tail_on_error: true   # required (with tail_on_slow_ms) when mode == tail
+    tail_on_slow_ms: 250
+    probability: 0.05     # required when mode == probabilistic, must be in [0,1]
+```
+
+An empty / omitted block is equivalent to `mode: always`: the invoker
+records every activation. Invalid policies fall back to `always` rather
+than silently dropping traffic.
+
 ## cs-scheduler
 
 ```yaml
