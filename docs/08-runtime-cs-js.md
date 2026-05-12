@@ -73,6 +73,7 @@ The invoker must not remove fields in v0.1.
 {
   "schema": "cs.function.script.v1",
   "runtime": "cs-js",
+  "runtimeVersion": "cs-js@1",
   "entry": "function.js",
   "handler": "default",
   "limits": { "timeoutMs": 3000, "memoryMb": 64, "maxConcurrency": 1 },
@@ -86,6 +87,39 @@ The invoker must not remove fields in v0.1.
 
 The control plane validates this manifest at publish time.
 The invoker validates it again at execution time.
+
+## Runtime selection
+
+The `runtime` field selects which adapter executes the bundle.
+
+Accepted values:
+
+- `cs-js` (default, this document)
+- `cs-python` (reserved; adapter ships in a follow-up release)
+- `cs-wasm` (reserved; adapter ships in a follow-up release)
+
+The field is optional. A manifest that omits `runtime` is treated as
+`cs-js` so that v1 manifests published before the runtime selection
+support landed continue to validate unchanged.
+
+The optional `runtimeVersion` field pins a specific adapter build, for
+example `cs-js@1`, `node20-goja`, `python3.12`, or `wasi-preview1`. The
+control plane stores the value verbatim and the invoker uses it to pick
+the matching adapter binary. When `runtimeVersion` is empty the invoker
+selects the newest installed version of the declared runtime.
+
+### Registry contract
+
+Runtime adapters register themselves with the control plane via the
+process-wide `runtime.DefaultRegistry` in `internal/runtime/registry.go`.
+At publish time the control plane calls `EnsureSupported(manifest.runtime)`
+and rejects manifests whose runtime has no registered handler with
+`400 CS_RUNTIME_UNSUPPORTED`. Tests and embedders can construct an isolated
+`Registry` instance through `runtime.NewRegistry()`.
+
+This PR ships only the `cs-js` slot. The `cs-python` and `cs-wasm`
+adapters will register themselves in subsequent releases without any
+change to the manifest schema.
 
 ## Host API (`cs`)
 

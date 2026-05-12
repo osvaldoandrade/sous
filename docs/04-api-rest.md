@@ -62,6 +62,14 @@ entry, handler)` returns `200 OK` with the existing record rather than
 [`19-entity-state-machines.md`](19-entity-state-machines.md) for the
 full lifecycle invariants.
 
+The `runtime` field is part of the public manifest contract. Accepted
+values are `cs-js`, `cs-python`, and `cs-wasm`; the control plane treats an
+omitted `runtime` as the implicit `cs-js` default for backward
+compatibility with v1 manifests. Publishing a manifest whose `runtime` has
+no registered adapter returns `400 CS_RUNTIME_UNSUPPORTED`. See
+[`08-runtime-cs-js.md`](08-runtime-cs-js.md) for the runtime selection
+rules and how additional adapters register themselves.
+
 ### Read
 
 `GET /v1/tenants/{tenant}/namespaces/{namespace}/functions/{name}`

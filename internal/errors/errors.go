@@ -11,44 +11,48 @@ import (
 type Code string
 
 const (
-	CSAuthnMissingToken   Code = "CS_AUTHN_MISSING_TOKEN"
-	CSAuthnInvalidToken   Code = "CS_AUTHN_INVALID_TOKEN"
-	CSAuthnExpiredToken   Code = "CS_AUTHN_EXPIRED_TOKEN"
-	CSAuthzDenied         Code = "CS_AUTHZ_DENIED"
-	CSAuthzRoleMissing    Code = "CS_AUTHZ_ROLE_MISSING"
-	CSAuthzResourceMis    Code = "CS_AUTHZ_RESOURCE_MISMATCH"
-	CSValidationFailed    Code = "CS_VALIDATION_FAILED"
-	CSValidationManifest  Code = "CS_VALIDATION_MANIFEST_INVALID"
-	CSValidationBundle    Code = "CS_VALIDATION_BUNDLE_TOO_LARGE"
-	CSValidationName      Code = "CS_VALIDATION_NAME_INVALID"
+	CSAuthnMissingToken  Code = "CS_AUTHN_MISSING_TOKEN"
+	CSAuthnInvalidToken  Code = "CS_AUTHN_INVALID_TOKEN"
+	CSAuthnExpiredToken  Code = "CS_AUTHN_EXPIRED_TOKEN"
+	CSAuthzDenied        Code = "CS_AUTHZ_DENIED"
+	CSAuthzRoleMissing   Code = "CS_AUTHZ_ROLE_MISSING"
+	CSAuthzResourceMis   Code = "CS_AUTHZ_RESOURCE_MISMATCH"
+	CSValidationFailed   Code = "CS_VALIDATION_FAILED"
+	CSValidationManifest Code = "CS_VALIDATION_MANIFEST_INVALID"
+	CSValidationBundle   Code = "CS_VALIDATION_BUNDLE_TOO_LARGE"
+	CSValidationName     Code = "CS_VALIDATION_NAME_INVALID"
 	// Size-limit errors carry HTTP 413 semantics. See docs/21-errors.md and
 	// docs/26-capacity-and-limits.md.
-	CSBundleTooLarge    Code = "CS_BUNDLE_TOO_LARGE"
-	CSBodyTooLarge      Code = "CS_BODY_TOO_LARGE"
-	CSResultTooLarge    Code = "CS_RESULT_TOO_LARGE"
-	CSLogLimitExceeded  Code = "CS_LOG_LIMIT_EXCEEDED"
+	CSBundleTooLarge   Code = "CS_BUNDLE_TOO_LARGE"
+	CSBodyTooLarge     Code = "CS_BODY_TOO_LARGE"
+	CSResultTooLarge   Code = "CS_RESULT_TOO_LARGE"
+	CSLogLimitExceeded Code = "CS_LOG_LIMIT_EXCEEDED"
 	// Quota errors carry HTTP 429 semantics.
-	CSRateLimited        Code = "CS_RATE_LIMITED"
-	CSTenantInflightLim  Code = "CS_TENANT_INFLIGHT_LIMIT"
+	CSRateLimited       Code = "CS_RATE_LIMITED"
+	CSTenantInflightLim Code = "CS_TENANT_INFLIGHT_LIMIT"
 	// Idempotency conflict carries HTTP 409 semantics.
 	CSIdempotencyConflict Code = "CS_IDEMPOTENCY_CONFLICT"
 	// Activation TTL expiry carries HTTP 410 semantics.
 	CSActivationTTLExpired Code = "CS_ACTIVATION_TTL_EXPIRED"
-	CSKVUnavailable       Code = "CS_KVROCKS_UNAVAILABLE"
-	CSKVWriteFailed       Code = "CS_KVROCKS_WRITE_FAILED"
-	CSKVReadFailed        Code = "CS_KVROCKS_READ_FAILED"
-	CSKVCASFailed         Code = "CS_KVROCKS_CAS_FAILED"
-	CSCodeQPublishFailed  Code = "CS_CODEQ_PUBLISH_FAILED"
-	CSCodeQSubFailed      Code = "CS_CODEQ_SUBSCRIBE_FAILED"
-	CSCodeQTimeout        Code = "CS_CODEQ_CORRELATION_TIMEOUT"
-	CSRuntimeTimeout      Code = "CS_RUNTIME_TIMEOUT"
-	CSRuntimeMemory       Code = "CS_RUNTIME_MEMORY_LIMIT"
-	CSRuntimeException    Code = "CS_RUNTIME_EXCEPTION"
-	CSRuntimeCapDenied    Code = "CS_RUNTIME_CAPABILITY_DENIED"
-	CSCadencePollFailed   Code = "CS_CADENCE_POLL_FAILED"
-	CSCadenceRespFailed   Code = "CS_CADENCE_RESPOND_FAILED"
-	CSCadenceHBFailed     Code = "CS_CADENCE_HEARTBEAT_FAILED"
-	CSSchedulerStateWrite Code = "CS_SCHEDULER_STATE_WRITE_FAILED"
+	CSKVUnavailable        Code = "CS_KVROCKS_UNAVAILABLE"
+	CSKVWriteFailed        Code = "CS_KVROCKS_WRITE_FAILED"
+	CSKVReadFailed         Code = "CS_KVROCKS_READ_FAILED"
+	CSKVCASFailed          Code = "CS_KVROCKS_CAS_FAILED"
+	CSCodeQPublishFailed   Code = "CS_CODEQ_PUBLISH_FAILED"
+	CSCodeQSubFailed       Code = "CS_CODEQ_SUBSCRIBE_FAILED"
+	CSCodeQTimeout         Code = "CS_CODEQ_CORRELATION_TIMEOUT"
+	CSRuntimeTimeout       Code = "CS_RUNTIME_TIMEOUT"
+	CSRuntimeMemory        Code = "CS_RUNTIME_MEMORY_LIMIT"
+	CSRuntimeException     Code = "CS_RUNTIME_EXCEPTION"
+	CSRuntimeCapDenied     Code = "CS_RUNTIME_CAPABILITY_DENIED"
+	CSCadencePollFailed    Code = "CS_CADENCE_POLL_FAILED"
+	CSCadenceRespFailed    Code = "CS_CADENCE_RESPOND_FAILED"
+	CSCadenceHBFailed      Code = "CS_CADENCE_HEARTBEAT_FAILED"
+	CSSchedulerStateWrite  Code = "CS_SCHEDULER_STATE_WRITE_FAILED"
+	// CSRuntimeUnsupported is returned when a manifest declares a runtime
+	// that has no registered handler in the control plane. Carries HTTP 400
+	// semantics. See docs/04-api-rest.md and docs/08-runtime-cs-js.md.
+	CSRuntimeUnsupported Code = "CS_RUNTIME_UNSUPPORTED"
 )
 
 type CSError struct {
@@ -105,6 +109,8 @@ func StatusCode(code Code) int {
 		return http.StatusGone // 410
 	case CSCodeQTimeout:
 		return http.StatusGatewayTimeout
+	case CSRuntimeUnsupported:
+		return http.StatusBadRequest // 400
 	}
 	switch {
 	case strings.HasPrefix(string(code), "CS_AUTHN_"):
