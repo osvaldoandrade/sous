@@ -68,7 +68,15 @@ omitted `runtime` as the implicit `cs-js` default for backward
 compatibility with v1 manifests. Publishing a manifest whose `runtime` has
 no registered adapter returns `400 CS_RUNTIME_UNSUPPORTED`. See
 [`08-runtime-cs-js.md`](08-runtime-cs-js.md) for the runtime selection
-rules and how additional adapters register themselves.
+rules and how additional adapters register themselves, and
+[`08b-runtime-cs-wasm.md`](08b-runtime-cs-wasm.md) for the cs-wasm host
+ABI and capability model.
+
+When `runtime` is `cs-wasm` the bundle ships a precompiled
+`module.wasm` plus the `manifest.json`; the JavaScript-specific
+`function.js` is not used. The control plane accepts both bundle
+layouts on the same upload endpoint and routes execution to the
+matching adapter at invocation time.
 
 ### Read
 

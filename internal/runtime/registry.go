@@ -108,8 +108,14 @@ type SimpleHandler struct{ N string }
 func (s SimpleHandler) Name() string { return s.N }
 
 func init() {
-	// cs-js is always present: it's the implicit default and the only
-	// runtime shipped in this PR. Adapter packages for cs-python and
-	// cs-wasm register themselves once they land.
+	// cs-js is always present: it's the implicit default and the
+	// runtime that ships in-tree. cs-wasm has its concrete adapter in
+	// internal/runtime/wasm; the slot registered here lets the
+	// control plane accept the runtime name even when the wasm
+	// package has not been imported (e.g. unit-test binaries). When
+	// the wasm package is imported its init() overrides this slot
+	// with the real Runner (Register is last-write-wins). The
+	// cs-python adapter follows the same pattern when it lands.
 	DefaultRegistry.Register(SimpleHandler{N: api.RuntimeCSJS})
+	DefaultRegistry.Register(SimpleHandler{N: api.RuntimeCSWASM})
 }
