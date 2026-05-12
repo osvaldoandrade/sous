@@ -19,6 +19,7 @@ import (
 	cserrors "github.com/osvaldoandrade/sous/internal/errors"
 	"github.com/osvaldoandrade/sous/internal/observability"
 	"github.com/osvaldoandrade/sous/internal/plugins/messaging"
+	secretsmemory "github.com/osvaldoandrade/sous/internal/plugins/secrets/memory"
 	"github.com/osvaldoandrade/sous/internal/runtime"
 	"github.com/osvaldoandrade/sous/internal/testutil"
 )
@@ -72,11 +73,12 @@ func newTestInvoker(store *testutil.FakePersistence, broker *testutil.FakeMessag
 	cfg := config.Config{}
 	cfg.CSControl.Limits.ActTTLSeconds = 60
 	i := &invoker{
-		cfg:         cfg,
-		store:       store,
-		broker:      broker,
-		inflight:    make(chan struct{}, 8),
-		versionSems: map[string]chan struct{}{},
+		cfg:             cfg,
+		store:           store,
+		broker:          broker,
+		secretsProvider: secretsmemory.New(nil),
+		inflight:        make(chan struct{}, 8),
+		versionSems:     map[string]chan struct{}{},
 	}
 	i.runner = runtime.NewRunner(runtimeKV{store: store}, runtimePublisher{broker: broker}, 256*1024, 64*1024, 1024*1024)
 	return i

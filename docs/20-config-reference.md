@@ -42,6 +42,25 @@ plugins:
     webhook_url: ""         # webhook sink only; POST target URL
     hmac_secret: ""         # webhook sink only; HMAC-SHA256 signing key
     history_limit: 1000     # per-tenant ring buffer size for the replay endpoint
+  secrets:
+    # E6.01: external secret-provider plugin. See docs/15-security.md
+    # "Secrets" for the injection contract and redaction guarantees.
+    driver: memory          # memory (default) | vault
+    memory:
+      # Used when driver == "memory". Map of <path> -> <value>; a
+      # VersionConfig.Secrets entry "STRIPE_KEY=payments/stripe_key"
+      # looks up seed["payments/stripe_key"] and exposes the result to
+      # user code as cs.env.get("STRIPE_KEY").
+      seed: {}
+    vault:
+      # Used when driver == "vault". The driver speaks Vault KV v2
+      # over plain HTTP through the stdlib net/http — no SDK dep.
+      addr: ""               # required: https://vault.example.com:8200
+      token: ""              # static token; prefer token_env in prod
+      token_env: VAULT_TOKEN # env var consulted when token is empty
+      kv_mount: secret       # KV v2 mount; requests hit <mount>/data/<path>
+      namespace: ""          # Vault Enterprise X-Vault-Namespace header
+      timeout_ms: 2000       # per-request HTTP timeout
 
 # Legacy compatibility section (optional during migration window).
 kvrocks:
@@ -66,6 +85,32 @@ tikti:
   cache_ttl_seconds: 60
   api_key: "tikti-api-key"
 ```
+
+### plugins.secrets
+
+`plugins.secrets` selects the secret-provider driver consumed by
+`cs-invoker-pool` to resolve `VersionConfig.Secrets` at activation
+start. The default driver is `memory`, intended for local development
+and tests; production deployments switch to `vault`.
+
+| Driver  | Required keys                | Notes                                                     |
+|---------|------------------------------|-----------------------------------------------------------|
+| memory  | `memory.seed`                | Empty seed is allowed — every lookup returns 404.          |
+| vault   | `vault.addr`                 | Auth via static token; prefer `VAULT_TOKEN` env over YAML. |
+
+Secret references on `VersionConfig.Secrets` accept three forms:
+
+```text
+NAME                          # path == name
+NAME=provider/path            # explicit path
+NAME=provider/path#json-field:key  # extract one field from a JSON payload
+```
+
+The resolved `{name: value}` map is stamped onto the runtime context
+via `runtime.WithEnv` and exposed to JS code through `cs.env.get(name)`
+and `cs.env.list()`. See `docs/15-security.md` "Secrets" for the
+end-to-end injection contract and redaction guarantees, and
+`internal/plugins/secrets` for the driver SDK.
 
 ## cs-control
 

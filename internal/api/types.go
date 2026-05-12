@@ -218,7 +218,21 @@ type VersionConfig struct {
 	Env            map[string]string `json:"env"`
 	Capabilities   map[string]any    `json:"capabilities"`
 	Authz          VersionAuthz      `json:"authz"`
-	Secrets        []string          `json:"secrets,omitempty"`
+	// Secrets is the list of secret references the function wants
+	// injected at activation start. Each entry is a wire-friendly
+	// string parsed by internal/plugins/secrets.ParseRef; accepted
+	// forms are:
+	//
+	//   "NAME"                              -> path == name
+	//   "NAME=provider/path"                -> explicit path
+	//   "NAME=provider/path#json-field:key" -> extract one field
+	//
+	// The cs-invoker-pool asks the configured secrets provider
+	// (E6.01) to resolve each reference and exposes the values to
+	// user code via cs.env.get(NAME). Secret material is never
+	// persisted in the bundle, KVRocks, or activation results — see
+	// docs/15-security.md "Secrets" and internal/plugins/secrets.
+	Secrets []string `json:"secrets,omitempty"`
 }
 
 type FunctionRecord struct {

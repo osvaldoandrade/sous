@@ -19,6 +19,7 @@ func TestNewProvidersFromRegisteredDrivers(t *testing.T) {
 	cfg.Plugins.Messaging.CodeQ.Brokers = []string{"localhost:9092"}
 	cfg.Plugins.Messaging.CodeQ.Topics.Invoke = "cs.invoke"
 	cfg.Plugins.Messaging.CodeQ.Topics.Results = "cs.results"
+	cfg.Plugins.Secrets.Driver = "memory"
 
 	authnProvider, err := registry.NewAuthN(cfg)
 	if err != nil {
@@ -45,6 +46,15 @@ func TestNewProvidersFromRegisteredDrivers(t *testing.T) {
 		t.Fatal("expected messaging provider")
 	}
 	_ = messagingProvider.Close()
+
+	secretsProvider, err := registry.NewSecrets(cfg)
+	if err != nil {
+		t.Fatalf("secrets provider: %v", err)
+	}
+	if secretsProvider == nil {
+		t.Fatal("expected secrets provider")
+	}
+	_ = secretsProvider.Close()
 }
 
 func TestUnknownDriverReturnsError(t *testing.T) {
@@ -62,5 +72,10 @@ func TestUnknownDriverReturnsError(t *testing.T) {
 	cfg.Plugins.Messaging.Driver = "unknown"
 	if _, err := registry.NewMessaging(cfg); err == nil {
 		t.Fatal("expected unknown messaging driver error")
+	}
+
+	cfg.Plugins.Secrets.Driver = "unknown"
+	if _, err := registry.NewSecrets(cfg); err == nil {
+		t.Fatal("expected unknown secrets driver error")
 	}
 }

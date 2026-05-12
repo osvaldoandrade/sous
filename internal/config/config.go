@@ -86,6 +86,49 @@ type Config struct {
 			HMACSecret   string `yaml:"hmac_secret"`
 			HistoryLimit int    `yaml:"history_limit"`
 		} `yaml:"audit"`
+		// Secrets configures the external secret-provider plugin used by
+		// cs-invoker-pool to resolve VersionConfig.Secrets at activation
+		// start (E6.01). The default driver "memory" reads from the
+		// in-process Memory.Seed map and is intended for development and
+		// tests; production deployments select "vault" to delegate to a
+		// HashiCorp Vault KV v2 cluster. See docs/15-security.md
+		// "Secrets" and docs/20-config-reference.md "plugins.secrets".
+		Secrets struct {
+			Driver string `yaml:"driver"`
+			Memory struct {
+				// Seed maps logical paths to literal secret values. The
+				// memory driver returns Seed[path] verbatim; missing
+				// paths surface CS_SECRET_NOT_FOUND so unit tests can
+				// exercise the failure path without standing up Vault.
+				Seed map[string]string `yaml:"seed"`
+			} `yaml:"memory"`
+			Vault struct {
+				// Addr is the Vault server base URL, e.g.
+				// "https://vault.example.com:8200". Required when
+				// driver == "vault".
+				Addr string `yaml:"addr"`
+				// Token is the static auth token applied to every
+				// request. Empty strings cause the driver to fall back
+				// to the env var named in TokenEnv (default
+				// "VAULT_TOKEN") so secrets never land in the YAML.
+				Token string `yaml:"token"`
+				// TokenEnv overrides the default VAULT_TOKEN env var
+				// name. Useful in shared-host deployments where
+				// multiple Vault clusters coexist.
+				TokenEnv string `yaml:"token_env"`
+				// KVMount is the KV v2 mount the driver prepends to
+				// every SecretRef.Path on Get(). Defaults to "secret".
+				KVMount string `yaml:"kv_mount"`
+				// Namespace is forwarded as the X-Vault-Namespace
+				// header on each request, supporting Vault Enterprise
+				// multi-tenancy.
+				Namespace string `yaml:"namespace"`
+				// TimeoutMS bounds the HTTP request to the Vault API.
+				// Defaults to 2000 (2s) so a slow Vault never stalls
+				// cold starts beyond the activation deadline.
+				TimeoutMS int `yaml:"timeout_ms"`
+			} `yaml:"vault"`
+		} `yaml:"secrets"`
 	} `yaml:"plugins"`
 
 	CSControl struct {
@@ -275,6 +318,18 @@ func syncPluginConfig(cfg *Config) {
 	if cfg.Plugins.Audit.Sink == "" {
 		cfg.Plugins.Audit.Sink = "stdout"
 	}
+	if cfg.Plugins.Secrets.Driver == "" {
+		cfg.Plugins.Secrets.Driver = "memory"
+	}
+	if cfg.Plugins.Secrets.Vault.KVMount == "" {
+		cfg.Plugins.Secrets.Vault.KVMount = "secret"
+	}
+	if cfg.Plugins.Secrets.Vault.TokenEnv == "" {
+		cfg.Plugins.Secrets.Vault.TokenEnv = "VAULT_TOKEN"
+	}
+	if cfg.Plugins.Secrets.Vault.TimeoutMS <= 0 {
+		cfg.Plugins.Secrets.Vault.TimeoutMS = 2000
+	}
 
 	if cfg.Plugins.AuthN.Tikti.IntrospectionURL == "" {
 		cfg.Plugins.AuthN.Tikti.IntrospectionURL = cfg.Tikti.IntrospectionURL
@@ -418,6 +473,18 @@ func (c Config) Validate() error {
 		}
 	default:
 		return fmt.Errorf("unsupported messaging plugin driver: %s", c.Plugins.Messaging.Driver)
+	}
+
+	switch c.Plugins.Secrets.Driver {
+	case "memory":
+		// The seed map is allowed to be empty; resolution of an unknown
+		// secret will then surface CS_SECRET_NOT_FOUND.
+	case "vault":
+		if strings.TrimSpace(c.Plugins.Secrets.Vault.Addr) == "" {
+			return errors.New("plugins.secrets.vault.addr is required")
+		}
+	default:
+		return fmt.Errorf("unsupported secrets plugin driver: %s", c.Plugins.Secrets.Driver)
 	}
 
 	if c.CSControl.HTTP.Addr == "" {

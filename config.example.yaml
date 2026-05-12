@@ -38,6 +38,32 @@ plugins:
     webhook_url: ""
     hmac_secret: ""
     history_limit: 1000
+  secrets:
+    # E6.01: external secret-provider plugin. The default driver
+    # "memory" reads from the seed map below and is intended for local
+    # development and tests. Production deployments select "vault" to
+    # delegate to a HashiCorp Vault KV v2 cluster — see
+    # docs/15-security.md "Secrets" and docs/20-config-reference.md.
+    driver: memory
+    memory:
+      # Map of <path> -> <value>. A VersionConfig.Secrets entry like
+      # "STRIPE_KEY=payments/stripe_key" looks up seed["payments/stripe_key"]
+      # and exposes the result to user code as cs.env.get("STRIPE_KEY").
+      seed: {}
+    vault:
+      # Base URL of the Vault cluster. Required when driver == "vault".
+      addr: ""
+      # Static auth token. Prefer leaving this empty and exporting the
+      # value via the token_env variable so the YAML stays sealed.
+      token: ""
+      token_env: VAULT_TOKEN
+      # KV v2 mount. The driver rewrites SecretRef.Path to
+      # "<kv_mount>/data/<path>" before issuing the request.
+      kv_mount: secret
+      # Vault Enterprise namespace forwarded as X-Vault-Namespace.
+      namespace: ""
+      # Per-request timeout. Bounded by the activation deadline.
+      timeout_ms: 2000
 
 # Legacy compatibility fields (optional during migration window).
 kvrocks:

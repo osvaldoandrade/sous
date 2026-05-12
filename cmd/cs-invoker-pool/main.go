@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	stderrors "errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 	"github.com/osvaldoandrade/sous/internal/plugins/messaging"
 	"github.com/osvaldoandrade/sous/internal/plugins/persistence"
 	"github.com/osvaldoandrade/sous/internal/plugins/registry"
+	"github.com/osvaldoandrade/sous/internal/plugins/secrets"
 	"github.com/osvaldoandrade/sous/internal/runtime"
 )
 
@@ -37,6 +39,12 @@ type invoker struct {
 	tenantInflight *tenantInflight
 	samplers       *samplerCache
 	clock          func() time.Time
+	// secretsProvider resolves VersionConfig.Secrets references at
+	// activation start so the runtime can expose them via cs.env.get.
+	// Always non-nil after main(): the registry returns the memory
+	// driver by default when no operator config is supplied. Tests
+	// substitute their own via newTestInvoker.
+	secretsProvider secrets.Provider
 
 	mu          sync.Mutex
 	versionSems map[string]chan struct{}
@@ -76,11 +84,17 @@ func main() {
 		panic(err)
 	}
 	defer broker.Close()
+	secretsProvider, err := registry.NewSecrets(cfg)
+	if err != nil {
+		panic(err)
+	}
+	defer secretsProvider.Close()
 
 	inv := &invoker{
 		cfg:                cfg,
 		store:              store,
 		broker:             broker,
+		secretsProvider:    secretsProvider,
 		logger:             observability.NewLogger("cs-invoker-pool"),
 		inflight:           make(chan struct{}, max(1, cfg.CSInvokerPool.Workers.MaxInflight)),
 		tenantInflight:     newTenantInflight(tenantInflightCapacity()),
@@ -285,6 +299,19 @@ func (i *invoker) executeOnce(ctx context.Context, env messaging.Envelope, req a
 	// outbound HTTP calls without each handler threading the value through.
 	// See internal/runtime/runner.go and docs/14-observability.md.
 	execCtx := observability.WithParent(ctx, activation.ActivationID)
+	// E6.01: resolve secret material from the configured external
+	// provider and stamp it onto the context so the runtime can expose
+	// it via cs.env.get(name). Resolution happens after the bundle SHA
+	// has been verified so a tampered bundle never triggers a vault
+	// fetch, and before user code runs so a missing secret fails the
+	// activation with CS_SECRET_NOT_FOUND rather than leaving the
+	// function to crash on an undefined env var. See
+	// docs/15-security.md "Secrets".
+	envVars, secretErr := i.resolveSecrets(execCtx, req, versionMeta.Config.Secrets)
+	if secretErr != nil {
+		return api.InvocationResult{}, secretErr
+	}
+	execCtx = runtime.WithEnv(execCtx, envVars)
 	out := i.runner.Execute(execCtx, bundleBytes, req)
 	// Surface size-limit enforcement at the invoker boundary. The runtime
 	// has already truncated to limits.MaxResultBytes / MaxLogBytes; here we
@@ -554,4 +581,51 @@ func triggerParentActivationID(t api.Trigger) string {
 	}
 	v, _ := t.Source["parent_activation_id"].(string)
 	return strings.TrimSpace(v)
+}
+
+// resolveSecrets walks the VersionConfig.Secrets list, asks the configured
+// secret provider to materialise each one, and returns the resulting
+// {name -> value} map ready to be stamped onto the activation context via
+// runtime.WithEnv. The function returns:
+//
+//   - (nil, nil)       when refs is empty — the fast path for functions
+//     that declare no secrets, which is the v0.1 default.
+//   - (nil, *CSError)  when any entry is malformed (CS_VALIDATION_FAILED)
+//     or the provider reports the path is missing
+//     (CS_SECRET_NOT_FOUND). The activation is aborted before user code
+//     runs so a half-injected env never reaches the runtime.
+//   - (map, nil)       on the happy path. The map is owned by the caller
+//     and never mutated by the runtime after WithEnv freezes a copy.
+//
+// The function deliberately does not log secret material — only the
+// reference name and the underlying provider error code are surfaced.
+// See docs/15-security.md "Secrets" for the redaction guarantees.
+func (i *invoker) resolveSecrets(ctx context.Context, req api.InvocationRequest, refs []string) (map[string]string, error) {
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	if i.secretsProvider == nil {
+		return nil, cserrors.New(cserrors.CSSecretUnavailable, "secrets provider not configured")
+	}
+	out := make(map[string]string, len(refs))
+	for _, raw := range refs {
+		ref, err := secrets.ParseRef(raw)
+		if err != nil {
+			return nil, cserrors.Wrap(cserrors.CSValidationFailed, "invalid secret reference", err)
+		}
+		value, err := i.secretsProvider.Get(ctx, req.Tenant, ref)
+		if err != nil {
+			// Providers already wrap their errors in CSError with the
+			// right code; pass them through unchanged. Transport
+			// failures from a non-conforming driver get re-wrapped so
+			// the caller sees a CS_SECRET_* code regardless of source.
+			var cserr *cserrors.CSError
+			if stderrors.As(err, &cserr) {
+				return nil, cserr
+			}
+			return nil, cserrors.Wrap(cserrors.CSSecretUnavailable, "secret resolution failed for "+ref.Name, err)
+		}
+		out[ref.Name] = value
+	}
+	return out, nil
 }
