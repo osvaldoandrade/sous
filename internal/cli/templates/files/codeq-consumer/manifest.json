@@ -1,0 +1,13 @@
+{
+  "name": "{{.Name}}",
+  "schema": "cs.function.script.v1",
+  "runtime": "cs-js",
+  "entry": "function.js",
+  "handler": "default",
+  "limits": { "timeoutMs": 10000, "memoryMb": 64, "maxConcurrency": 1 },
+  "capabilities": {
+    "kv": { "prefixes": ["idem:"], "ops": ["get", "set", "del"] },
+    "codeq": { "publishTopics": ["consumer.*"] },
+    "http": { "allowHosts": [], "timeoutMs": 1500 }
+  }
+}
