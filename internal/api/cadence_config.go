@@ -28,3 +28,14 @@ const (
 	CadenceKindActivity = "activity"
 	CadenceKindWorkflow = "workflow"
 )
+
+// CadenceBindingKind* mirror the manifest-side constants for the
+// WorkerBinding.Kind field added in E8.01. The string values are
+// intentionally identical so a binding's Kind field round-trips with
+// the manifest's cadence.kind without translation. Keeping them as
+// separate identifiers means a future divergence (e.g., "child" for
+// a child-workflow-only binding) is a single-symbol change.
+const (
+	CadenceBindingKindActivity = "activity"
+	CadenceBindingKindWorkflow = "workflow"
+)

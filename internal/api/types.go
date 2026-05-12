@@ -344,6 +344,22 @@ type WorkerBinding struct {
 	// FunctionResponse before shipping it to RespondActivityTaskCompleted.
 	// Empty defaults to JSON. Recognised values: "json", "msgpack", "raw".
 	OutputCodec string `json:"output_codec,omitempty"`
+	// Kind selects which Cadence task surface this binding polls:
+	//
+	//   - "activity" (default, also when omitted): the poller long-polls
+	//     ActivityTasks on the tasklist and routes them through the
+	//     ActivityMap to a cs function — the v0.1 behaviour.
+	//   - "workflow": the poller long-polls DecisionTasks and dispatches
+	//     them to the workflow executor (internal/cadence/workflow). The
+	//     workflow function authored in cs-js produces a list of
+	//     Decisions which the executor ships back to Cadence via
+	//     RespondDecisionTaskCompleted. Workflow bundles are subject to
+	//     the determinism linter at publish time.
+	//
+	// Append-only: this field landed in E8.01 and is intentionally last
+	// so pre-E8.01 WorkerBinding JSON round-trips byte-identically with
+	// Kind == "" (which the poller treats as activity for back-compat).
+	Kind string `json:"kind,omitempty"`
 }
 
 type ActivationRecord struct {
