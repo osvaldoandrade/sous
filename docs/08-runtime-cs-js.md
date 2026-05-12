@@ -99,8 +99,8 @@ The `runtime` field selects which adapter executes the bundle.
 Accepted values:
 
 - `cs-js` (default, this document)
-- `cs-python` (reserved; adapter ships in a follow-up release)
-- `cs-wasm` (reserved; adapter ships in a follow-up release)
+- `cs-python` (subprocess MVP adapter, see [`08c-runtime-cs-python.md`](08c-runtime-cs-python.md))
+- `cs-wasm` (wazero adapter, see [`08b-runtime-cs-wasm.md`](08b-runtime-cs-wasm.md))
 
 The field is optional. A manifest that omits `runtime` is treated as
 `cs-js` so that v1 manifests published before the runtime selection
@@ -121,9 +121,14 @@ and rejects manifests whose runtime has no registered handler with
 `400 CS_RUNTIME_UNSUPPORTED`. Tests and embedders can construct an isolated
 `Registry` instance through `runtime.NewRegistry()`.
 
-This PR ships only the `cs-js` slot. The `cs-python` and `cs-wasm`
-adapters will register themselves in subsequent releases without any
-change to the manifest schema.
+The `cs-wasm` adapter lives in `internal/runtime/wasm` and the
+`cs-python` adapter lives in `internal/runtime/python`. Each package
+self-registers via an `init()` function; importing the package (or
+blank-importing it from `cmd/cs-invoker-pool/main.go`) is enough to
+wire the runtime into the registry. The dispatch hop happens inside
+`internal/runtime/runner.go Execute()` via the `selectRunner` helper:
+cs-js stays on the in-tree Goja path, everything else routes to the
+concrete `runtime.Executor` registered for the manifest runtime.
 
 ## Imports and import maps
 
