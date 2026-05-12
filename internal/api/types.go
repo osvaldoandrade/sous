@@ -8,12 +8,67 @@ import (
 )
 
 var (
-	tenantPattern    = regexp.MustCompile(`^t_[a-z0-9]{6,32}$`)
-	namespacePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{2,63}$`)
-	functionPattern  = regexp.MustCompile(`^[a-z][a-z0-9_-]{2,63}$`)
-	aliasPattern     = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,31}$`)
-	entryPattern     = regexp.MustCompile(`^[a-zA-Z0-9._/-]+$`)
+	tenantPattern         = regexp.MustCompile(`^t_[a-z0-9]{6,32}$`)
+	namespacePattern      = regexp.MustCompile(`^[a-z][a-z0-9_-]{2,63}$`)
+	functionPattern       = regexp.MustCompile(`^[a-z][a-z0-9_-]{2,63}$`)
+	aliasPattern          = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,31}$`)
+	entryPattern          = regexp.MustCompile(`^[a-zA-Z0-9._/-]+$`)
+	runtimeVersionPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._@:+-]{0,63}$`)
 )
+
+// Canonical runtime identifiers accepted by the manifest schema. The
+// concrete adapters live in internal/runtime; the control plane consults
+// runtime.DefaultRegistry at publish time to verify that an adapter is
+// actually installed (and rejects with CS_RUNTIME_UNSUPPORTED otherwise).
+const (
+	RuntimeCSJS     = "cs-js"
+	RuntimeCSPython = "cs-python"
+	RuntimeCSWASM   = "cs-wasm"
+)
+
+// SupportedManifestRuntimes is the closed set of runtime identifiers the
+// manifest validator accepts. Append-only: removing a value is a breaking
+// change to the public manifest contract.
+var SupportedManifestRuntimes = []string{
+	RuntimeCSJS,
+	RuntimeCSPython,
+	RuntimeCSWASM,
+}
+
+// IsKnownRuntime reports whether s is one of SupportedManifestRuntimes. The
+// empty string is also accepted because v1 manifests without a "runtime"
+// field implicitly target cs-js; callers that need to materialise the
+// default should use NormalizeRuntime.
+func IsKnownRuntime(s string) bool {
+	if s == "" {
+		return true
+	}
+	for _, r := range SupportedManifestRuntimes {
+		if r == s {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeRuntime resolves the implicit cs-js default for empty runtime
+// fields. It does not validate the input; callers should pair it with
+// IsKnownRuntime.
+func NormalizeRuntime(s string) string {
+	if s == "" {
+		return RuntimeCSJS
+	}
+	return s
+}
+
+// IsValidRuntimeVersion reports whether v matches the runtime version
+// format. The empty string is accepted because RuntimeVersion is optional.
+func IsValidRuntimeVersion(v string) bool {
+	if v == "" {
+		return true
+	}
+	return runtimeVersionPattern.MatchString(v)
+}
 
 type FunctionRef struct {
 	Function string `json:"function"`
@@ -98,6 +153,12 @@ type FunctionManifest struct {
 	Handler      string               `json:"handler"`
 	Limits       ManifestLimits       `json:"limits"`
 	Capabilities ManifestCapabilities `json:"capabilities"`
+	// Optional pin for the runtime adapter version, e.g. "cs-js@1",
+	// "node20-goja", "python3.12", "wasi-preview1". When empty the control
+	// plane picks the latest installed version of the declared runtime.
+	// Appended at the bottom of the struct so existing v1 manifests that
+	// lack the field round-trip with byte-identical JSON encoding.
+	RuntimeVersion string `json:"runtimeVersion,omitempty"`
 }
 
 type VersionAuthz struct {
@@ -300,8 +361,11 @@ func (m FunctionManifest) Validate() error {
 	if m.Schema != "cs.function.script.v1" {
 		return fmt.Errorf("unsupported schema")
 	}
-	if m.Runtime != "cs-js" {
+	if !IsKnownRuntime(m.Runtime) {
 		return fmt.Errorf("unsupported runtime")
+	}
+	if !IsValidRuntimeVersion(m.RuntimeVersion) {
+		return fmt.Errorf("runtimeVersion has invalid format")
 	}
 	if strings.TrimSpace(m.Entry) == "" {
 		return fmt.Errorf("entry is required")
