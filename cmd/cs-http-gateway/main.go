@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"flag"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -148,6 +147,10 @@ func (s *server) invokeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	body, err := readBoundedBody(r, int64(s.cfg.CSHTTPGateway.Limits.MaxBodyBytes))
 	if err != nil {
+		if errors.Is(err, errBodyTooLarge) {
+			cserrors.WriteHTTP(w, cserrors.New(cserrors.CSBodyTooLarge, "request body too large"), requestID(r))
+			return
+		}
 		cserrors.WriteHTTP(w, cserrors.New(cserrors.CSValidationFailed, err.Error()), requestID(r))
 		return
 	}
@@ -267,6 +270,10 @@ func flattenHeaders(header http.Header) map[string]string {
 	return out
 }
 
+// errBodyTooLarge is returned by readBoundedBody when the incoming request body
+// exceeds the configured max. Callers map it to CS_BODY_TOO_LARGE / HTTP 413.
+var errBodyTooLarge = errors.New("request body too large")
+
 func readBoundedBody(r *http.Request, maxBytes int64) ([]byte, error) {
 	if maxBytes <= 0 {
 		maxBytes = 6 * 1024 * 1024
@@ -276,7 +283,7 @@ func readBoundedBody(r *http.Request, maxBytes int64) ([]byte, error) {
 		return nil, err
 	}
 	if int64(len(body)) > maxBytes {
-		return nil, fmt.Errorf("request body too large")
+		return nil, errBodyTooLarge
 	}
 	return body, nil
 }

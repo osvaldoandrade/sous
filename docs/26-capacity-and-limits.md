@@ -6,24 +6,33 @@ The model exists to turn configuration into numeric ceilings.
 
 ## 1. Limit table
 
-| Surface | Limit | Default |
-|---|---:|---:|
-| Published bundle | bytes | 16,777,216 |
-| Draft TTL | seconds | 86,400 |
-| Activation TTL | seconds | 604,800 |
-| HTTP request body | bytes | 6,291,456 |
-| HTTP header bytes | bytes | 65,536 |
-| HTTP query bytes | bytes | 16,384 |
-| Function result | bytes | 262,144 |
-| Function error | bytes | 65,536 |
-| Activation logs | bytes | 1,048,576 |
-| HTTP timeout | ms | 3,000 |
-| HTTP timeout max | ms | 30,000 |
-| Worker timeout | ms | 30,000 |
-| Worker timeout max | ms | 900,000 |
-| Scheduler resolution | ms | 1,000 |
-| Schedule interval min | seconds | 1 |
-| Schedule interval max | seconds | 86,400 |
+| Surface | Limit | Default | Enforced at | On violation |
+|---|---:|---:|---|---|
+| Published bundle | bytes | 16,777,216 | `cs-control` `PUT .../draft` | `413 CS_BUNDLE_TOO_LARGE` |
+| Draft TTL | seconds | 86,400 | `cs-control` KV write | draft becomes unresolvable, publish rejected |
+| Activation TTL | seconds | 604,800 | `cs-invoker-pool` / `internal/kv` | read returns `410 CS_ACTIVATION_TTL_EXPIRED` |
+| HTTP request body | bytes | 6,291,456 | `cs-http-gateway` invoke | `413 CS_BODY_TOO_LARGE` |
+| HTTP header bytes | bytes | 65,536 | `cs-http-gateway` invoke | `400 CS_VALIDATION_FAILED` |
+| HTTP query bytes | bytes | 16,384 | `cs-http-gateway` invoke | `400 CS_VALIDATION_FAILED` |
+| Function result | bytes | 262,144 | `cs-invoker-pool` result write | `413 CS_RESULT_TOO_LARGE` |
+| Function error | bytes | 65,536 | `cs-invoker-pool` error write | truncated, `X-CS-Truncated: error` |
+| Activation logs | bytes | 1,048,576 | `cs-invoker-pool` log write | truncated + sentinel `CS_LOG_LIMIT_EXCEEDED`, `X-CS-Truncated: logs` |
+| HTTP timeout | ms | 3,000 | `cs-http-gateway` per-version | `504 CS_CODEQ_CORRELATION_TIMEOUT` |
+| HTTP timeout max | ms | 30,000 | `cs-control` publish validation | `400 CS_VALIDATION_FAILED` |
+| Worker timeout | ms | 30,000 | `cs-invoker-pool` runtime | `CS_RUNTIME_TIMEOUT` |
+| Worker timeout max | ms | 900,000 | `cs-control` publish validation | `400 CS_VALIDATION_FAILED` |
+| Tenant RPS (gateway) | rps | 200 | `cs-http-gateway` token bucket | `429 CS_RATE_LIMITED` |
+| Function RPS (gateway) | rps | 20 | `cs-http-gateway` token bucket | `429 CS_RATE_LIMITED` |
+| Tenant max inflight | activations | 64 | `cs-invoker-pool` semaphore | sync: `429 CS_TENANT_INFLIGHT_LIMIT`; async: queued in codeQ |
+| Scheduler resolution | ms | 1,000 | `cs-scheduler` tick | — |
+| Schedule interval min | seconds | 1 | `cs-control` schedule validation | `400 CS_VALIDATION_FAILED` |
+| Schedule interval max | seconds | 86,400 | `cs-control` schedule validation | `400 CS_VALIDATION_FAILED` |
+
+Limits are centralised in the `internal/limits` package (loaded via
+`limits.FromConfig`). All enforcement sites MUST consult it so the contract
+remains uniform across `cs-control`, `cs-http-gateway`, `cs-invoker-pool`,
+and `cs-cadence-poller`. See `docs/21-errors.md` for the error-code → HTTP
+status mapping.
 
 ## 2. Invoker throughput model
 

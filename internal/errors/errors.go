@@ -21,6 +21,19 @@ const (
 	CSValidationManifest  Code = "CS_VALIDATION_MANIFEST_INVALID"
 	CSValidationBundle    Code = "CS_VALIDATION_BUNDLE_TOO_LARGE"
 	CSValidationName      Code = "CS_VALIDATION_NAME_INVALID"
+	// Size-limit errors carry HTTP 413 semantics. See docs/21-errors.md and
+	// docs/26-capacity-and-limits.md.
+	CSBundleTooLarge    Code = "CS_BUNDLE_TOO_LARGE"
+	CSBodyTooLarge      Code = "CS_BODY_TOO_LARGE"
+	CSResultTooLarge    Code = "CS_RESULT_TOO_LARGE"
+	CSLogLimitExceeded  Code = "CS_LOG_LIMIT_EXCEEDED"
+	// Quota errors carry HTTP 429 semantics.
+	CSRateLimited        Code = "CS_RATE_LIMITED"
+	CSTenantInflightLim  Code = "CS_TENANT_INFLIGHT_LIMIT"
+	// Idempotency conflict carries HTTP 409 semantics.
+	CSIdempotencyConflict Code = "CS_IDEMPOTENCY_CONFLICT"
+	// Activation TTL expiry carries HTTP 410 semantics.
+	CSActivationTTLExpired Code = "CS_ACTIVATION_TTL_EXPIRED"
 	CSKVUnavailable       Code = "CS_KVROCKS_UNAVAILABLE"
 	CSKVWriteFailed       Code = "CS_KVROCKS_WRITE_FAILED"
 	CSKVReadFailed        Code = "CS_KVROCKS_READ_FAILED"
@@ -81,6 +94,18 @@ func WithRequestID(err error, requestID string) error {
 }
 
 func StatusCode(code Code) int {
+	switch code {
+	case CSBundleTooLarge, CSBodyTooLarge, CSResultTooLarge, CSLogLimitExceeded:
+		return http.StatusRequestEntityTooLarge // 413
+	case CSRateLimited, CSTenantInflightLim:
+		return http.StatusTooManyRequests // 429
+	case CSIdempotencyConflict:
+		return http.StatusConflict // 409
+	case CSActivationTTLExpired:
+		return http.StatusGone // 410
+	case CSCodeQTimeout:
+		return http.StatusGatewayTimeout
+	}
 	switch {
 	case strings.HasPrefix(string(code), "CS_AUTHN_"):
 		return http.StatusUnauthorized
@@ -88,8 +113,6 @@ func StatusCode(code Code) int {
 		return http.StatusForbidden
 	case strings.HasPrefix(string(code), "CS_VALIDATION_"):
 		return http.StatusBadRequest
-	case code == CSCodeQTimeout:
-		return http.StatusGatewayTimeout
 	case strings.HasSuffix(string(code), "_UNAVAILABLE"):
 		return http.StatusServiceUnavailable
 	default:

@@ -92,15 +92,30 @@ The platform exists to reduce friction in steps 3 to 5.
 
 ### Size limits
 
-- Max published bundle size: 16 MiB.
-- Max HTTP request body size: 6 MiB.
-- Max function result size: 256 KiB.
-- Max logs per activation: 1 MiB.
+- Max published bundle size: 16 MiB. Enforced at `cs-control` `PUT .../draft`; violations return `413 CS_BUNDLE_TOO_LARGE`.
+- Max HTTP request body size: 6 MiB. Enforced at `cs-http-gateway`; violations return `413 CS_BODY_TOO_LARGE`.
+- Max function result size: 256 KiB. Enforced at `cs-invoker-pool`; violations return `413 CS_RESULT_TOO_LARGE`.
+- Max logs per activation: 1 MiB. Enforced at `cs-invoker-pool`; logs are cleanly truncated and the response carries `X-CS-Truncated: logs` plus a `CS_LOG_LIMIT_EXCEEDED` sentinel.
+
+All size limits are centralised in `internal/limits` and the exact contract
+(default, enforcement site, error code) is enumerated in
+`docs/26-capacity-and-limits.md` and `docs/21-errors.md`.
+
+### Quotas
+
+- Per-tenant gateway RPS (default 200) and per-function gateway RPS (default 20) are enforced by `cs-http-gateway` token buckets; violations return `429 CS_RATE_LIMITED` with a `Retry-After` header.
+- Per-tenant concurrent activation cap (default 64) is enforced by `cs-invoker-pool`; synchronous overflow returns `429 CS_TENANT_INFLIGHT_LIMIT`, async overflow remains queued in codeQ.
+
+### Idempotency
+
+- HTTP invoke accepts an optional `Idempotency-Key` header (`[A-Za-z0-9_-]{8,128}`). When supplied, the resulting `activation_id` is derived deterministically from `(tenant, function, ref, idempotency_key)` and the dedup store collapses retries onto a single activation.
+- Mismatched body for the same key returns `409 CS_IDEMPOTENCY_CONFLICT`.
+- codeQ and Cadence retry paths reuse the same `activation_id` so at-least-once delivery does not produce duplicate activations.
 
 ### Retention
 
 - Draft TTL: 24 hours.
-- Activation TTL default: 7 days.
+- Activation TTL default: 7 days. Reads after expiry return `410 CS_ACTIVATION_TTL_EXPIRED`.
 
 ### Availability targets
 
