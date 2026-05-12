@@ -27,6 +27,8 @@ A binding includes:
 - `pollers.activity`
 - `limits.max_inflight_tasks`
 - `activity_map` from ActivityType to FunctionRef
+- `input_codec` (optional, see "Codec selection" below)
+- `output_codec` (optional, see "Codec selection" below)
 
 Example:
 
@@ -40,9 +42,97 @@ Example:
   "limits": { "max_inflight_tasks": 256 },
   "activity_map": {
     "SousInvokeActivity": { "function": "reconcile", "alias": "prod" }
+  },
+  "input_codec": "msgpack",
+  "output_codec": "msgpack"
+}
+```
+
+## Codec selection
+
+Each WorkerBinding pins the wire codec used for one tasklist. The poller
+picks the codec at task-poll time and routes both the input (passed to
+the function) and the output (sent to `RespondActivityTaskCompleted`)
+through it. Codecs live in `internal/cadence` and register themselves
+into a shared registry on package init.
+
+Supported codecs (v0.1):
+
+| Name      | Content-Type                | Behaviour                                                                                                    |
+|-----------|-----------------------------|--------------------------------------------------------------------------------------------------------------|
+| `json`    | `application/json`          | Default. JSON-marshal the function's `FunctionResponse` and base64-wrap it on the Cadence wire.              |
+| `msgpack` | `application/msgpack`       | Msgpack-encode (`github.com/vmihailenco/msgpack/v5`). Interoperates with Java/Go workflow workers.            |
+| `raw`     | `application/octet-stream`  | Passthrough. `event.input.raw_base64` ships verbatim; the function's `response.body` ships verbatim back.    |
+
+Selection is per-direction on the binding:
+
+- `input_codec` annotates the `event.input` envelope so the runtime can
+  decode the bytes Cadence delivered.
+- `output_codec` controls how the function's `FunctionResponse` is
+  serialized before `RespondActivityTaskCompleted`.
+
+Both fields are optional. Omitting them (or sending the empty string)
+preserves the pre-E8.02 behaviour of JSON for both directions, so
+existing bindings keep working unchanged.
+
+### Wire convention
+
+The Cadence transport itself is unchanged: the poller still
+base64-wraps the codec output before sending it to
+`RespondActivityTaskCompleted`, and the `event.input` envelope still
+carries `raw_base64`. The new addition is two annotations on the
+event input that downstream runtimes can use to route the decoder:
+
+```json
+{
+  "type": "cadence.activity",
+  "cadence": { /* ... */ },
+  "input": {
+    "raw_base64": "...",
+    "codec": "msgpack",
+    "content_type": "application/msgpack"
   }
 }
 ```
+
+For the `raw` output codec the function is expected to return a
+`FunctionResponse` whose `body` is the wire payload. When
+`isBase64Encoded` is `true`, the poller base64-decodes the body first
+and ships the resulting bytes verbatim; otherwise the body's UTF-8
+bytes are shipped as-is. This makes `raw` the right choice for any
+opaque binary blob the poller never needs to understand (Thrift,
+length-delimited protobuf, compressed payloads).
+
+Failure paths:
+
+- A decode error on the input side surfaces to Cadence as
+  `RespondActivityTaskFailed(reason="codec_decode_failed", details=<message>)`.
+- An encode error on the output side surfaces as
+  `RespondActivityTaskFailed(reason="codec_encode_failed", details=<message>)`.
+- Failures (`status="error" | "timeout"`) always ship the JSON
+  `InvocationError` envelope on the wire, regardless of `output_codec`,
+  so workflow code keeps a stable error contract across codecs.
+
+### Negotiation at binding-create time
+
+`POST /v1/.../cadence/workers` validates `input_codec` and `output_codec`
+against the codec registry. Unknown codec names are rejected with
+HTTP 400 and `error.code = "CS_VALIDATION_UNSUPPORTED_CODEC"`. The empty
+string and the names `json`, `msgpack`, `raw` are always accepted.
+
+### Migration: flipping a tasklist to a binary codec
+
+Codec drift will fail in-flight tasks — a task polled before the flip
+but completed after will encode its response with the wrong codec.
+Operators should:
+
+1. Stop submitting new workflows against the tasklist.
+2. Wait for `max_inflight_tasks` to drain (the poller's `refreshBindings`
+   loop restarts pollers on every binding update, so a config flip while
+   inflight is treated as a restart event).
+3. Update the binding's `input_codec` / `output_codec`.
+4. Confirm a smoke-test activity round-trips successfully.
+5. Resume submissions.
 
 ## Lifecycle
 

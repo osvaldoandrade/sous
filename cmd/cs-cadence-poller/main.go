@@ -61,6 +61,10 @@ type taskInfo struct {
 	TaskHash   string
 	BindingKey string
 	Semaphore  chan struct{}
+	// OutputCodec is the codec name (per binding) the poller uses to
+	// encode the activity completion payload before calling
+	// RespondActivityTaskCompleted. Empty means JSON for back-compat.
+	OutputCodec string
 }
 
 func main() {
@@ -269,7 +273,7 @@ func (p *poller) pollLoop(ctx context.Context, binding api.WorkerBinding, sem ch
 					"activityType": task.ActivityType,
 					"attempt":      task.Attempt,
 				},
-				"input": map[string]any{"raw_base64": task.InputBase64},
+				"input": buildEventInput(task.InputBase64, binding.InputCodec),
 			},
 		}
 		if err := p.broker.PublishInvocation(ctx, invocation); err != nil {
@@ -281,12 +285,13 @@ func (p *poller) pollLoop(ctx context.Context, binding api.WorkerBinding, sem ch
 		_ = p.store.PutCadenceTaskMapping(ctx, binding.Tenant, binding.Namespace, taskHash, activationID, 24*time.Hour)
 		p.mu.Lock()
 		p.activation[activationID] = taskInfo{
-			Tenant:     binding.Tenant,
-			Namespace:  binding.Namespace,
-			TaskToken:  task.TaskToken,
-			TaskHash:   taskHash,
-			BindingKey: key,
-			Semaphore:  sem,
+			Tenant:      binding.Tenant,
+			Namespace:   binding.Namespace,
+			TaskToken:   task.TaskToken,
+			TaskHash:    taskHash,
+			BindingKey:  key,
+			Semaphore:   sem,
+			OutputCodec: binding.OutputCodec,
 		}
 		p.mu.Unlock()
 	}
@@ -323,7 +328,15 @@ func (p *poller) consumeResults(ctx context.Context) {
 		_ = p.idemStore.Commit(ctx, info.TaskHash, info.TaskHash, cached, errMsg)
 
 		if res.Status == "success" {
-			payload, _ := json.Marshal(res.Result)
+			payload, encErr := encodeActivityPayload(info.OutputCodec, res.Result)
+			if encErr != nil {
+				p.logger.Warn(ctx, "codec encode failed: "+encErr.Error())
+				if err := p.client.RespondActivityFailed(ctx, info.TaskToken, "codec_encode_failed", []byte(encErr.Error())); err != nil {
+					return cserrors.Wrap(cserrors.CSCadenceRespFailed, "failed to respond failed", err)
+				}
+				_ = p.store.DeleteCadenceTaskMapping(ctx, info.Tenant, info.Namespace, info.TaskHash)
+				return nil
+			}
 			encoded := []byte(base64.StdEncoding.EncodeToString(payload))
 			if err := p.client.RespondActivityCompleted(ctx, info.TaskToken, encoded); err != nil {
 				return cserrors.Wrap(cserrors.CSCadenceRespFailed, "failed to respond completed", err)
@@ -333,6 +346,9 @@ func (p *poller) consumeResults(ctx context.Context) {
 			if res.Status == "timeout" {
 				reason = "timeout"
 			}
+			// Error details stay JSON regardless of the binding's output
+			// codec: workflow consumers expect a stable structured error
+			// envelope, not a binary payload they may not be able to parse.
 			details, _ := json.Marshal(res.Error)
 			encoded := []byte(base64.StdEncoding.EncodeToString(details))
 			if err := p.client.RespondActivityFailed(ctx, info.TaskToken, reason, encoded); err != nil {
@@ -352,6 +368,46 @@ type cadenceCachedResult struct {
 	Status string                `json:"status"`
 	Result *api.FunctionResponse `json:"result,omitempty"`
 	Err    *api.InvocationError  `json:"error,omitempty"`
+}
+
+// encodeActivityPayload encodes a FunctionResponse using the codec named
+// by the binding. The RawBytesCodec branch needs special handling: it
+// expects raw bytes, not a FunctionResponse — so when the binding selected
+// raw the poller treats res.Body as the wire payload, base64-decoding it
+// if the function marked it as such. Empty codec names resolve to
+// JSONCodec via LookupCodec, preserving the pre-E8.02 behaviour.
+func encodeActivityPayload(codecName string, res *api.FunctionResponse) ([]byte, error) {
+	c := cadence.LookupCodec(codecName)
+	if _, isRaw := c.(cadence.RawBytesCodec); isRaw {
+		if res == nil {
+			return nil, nil
+		}
+		if res.IsBase64Encoded {
+			return base64.StdEncoding.DecodeString(res.Body)
+		}
+		return []byte(res.Body), nil
+	}
+	return c.Encode(res)
+}
+
+// buildEventInput shapes the per-binding `event.input` payload published
+// to cs-invoker-pool. For the default JSON path the input keeps the
+// historical `{"raw_base64": "..."}` envelope so cs-js consumers stay on
+// their existing string contract. For binary codecs the same envelope
+// shape is used (still base64 — the wire was always base64), but a
+// `codec` hint is attached so the runtime can route the decoder
+// correctly. Unknown codec names defensively fall back to "json" so a
+// binding that slipped past validation still produces a parseable event.
+func buildEventInput(inputBase64, codecName string) map[string]any {
+	resolved := codecName
+	if resolved == "" || !cadence.IsCodecRegistered(resolved) {
+		resolved = "json"
+	}
+	return map[string]any{
+		"raw_base64":   inputBase64,
+		"codec":        resolved,
+		"content_type": cadence.LookupCodec(resolved).ContentType(),
+	}
 }
 
 // replayCadenceResult sends a cached completion back to Cadence using the
