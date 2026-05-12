@@ -9,6 +9,9 @@ func TestKeys(t *testing.T) {
 	if got := VersionMetaKey("t_abc123", "payments", "reconcile", 17); got != "cs:fn:t_abc123:payments:reconcile:ver:17:meta" {
 		t.Fatalf("unexpected key: %s", got)
 	}
+	if got := TenantEgressPolicyKey("t_abc123"); got != "cs:tenant:t_abc123:egress:policy" {
+		t.Fatalf("unexpected egress key: %s", got)
+	}
 }
 
 func TestCursorHelpers(t *testing.T) {

@@ -96,6 +96,15 @@ const (
 	// 503 semantics so the gateway / scheduler can retry the activation
 	// against a healthier replica.
 	CSSecretUnavailable Code = "CS_SECRET_UNAVAILABLE"
+	// CSEgressDenied is returned when an outbound network call from
+	// user code is rejected by the per-tenant egress allowlist
+	// (roadmap E6.02). The runtime layers this check on top of the
+	// existing manifest http.allowHosts list and the non-negotiable
+	// private-IP block from docs/02-requirements.md. The error
+	// message names the policy hit so operators can audit denials
+	// from the activation log. Carries HTTP 403 (Forbidden)
+	// semantics. See docs/15-security.md "Network egress".
+	CSEgressDenied Code = "CS_EGRESS_DENIED"
 )
 
 type CSError struct {
@@ -162,6 +171,8 @@ func StatusCode(code Code) int {
 		return http.StatusUnprocessableEntity // 422
 	case CSSecretNotFound:
 		return http.StatusNotFound // 404
+	case CSEgressDenied:
+		return http.StatusForbidden // 403
 	}
 	switch {
 	case strings.HasPrefix(string(code), "CS_AUTHN_"):

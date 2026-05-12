@@ -169,6 +169,32 @@ version (see the **SBOM** section below); a publish whose SBOM cannot
 be produced or persisted fails so regulated tenants never observe a
 version without supply-chain metadata.
 
+### Signature header (E5.02)
+
+A publishing agent that has rotated a signing key MUST send the
+detached Ed25519 signature in the `X-CS-Signature` request header,
+base64-encoded (standard or URL alphabet, padding optional). The
+signed payload is produced by
+`signing.CanonicalPayload(sha, tenant, namespace, function, 0)` — see
+`docs/15-security.md` "Signing" for the byte layout.
+
+Behaviour:
+
+- `plugins.signing.required=false` (default) and header absent: publish
+  succeeds without a signature; the resulting `VersionRecord.signature`
+  is `null`.
+- `plugins.signing.required=true` and header absent: 400
+  `CS_SIGNATURE_MISSING`.
+- Malformed base64: 400 `CS_SIGNATURE_INVALID`.
+- Tenant has not rotated yet: 404 `CS_SIGNATURE_KEY_NOT_FOUND`.
+- Signature does not verify against the tenant's active public key:
+  400 `CS_SIGNATURE_INVALID`.
+
+When verification succeeds, the response body is unchanged and the
+persisted `VersionRecord.signature` carries the KID, algorithm, raw
+signature bytes, and signed-at timestamp. The invoker re-verifies on
+every cold bundle load.
+
 ## SBOM
 
 `GET /v1/tenants/{tenant}/namespaces/{namespace}/functions/{name}/versions/{version}/sbom`
@@ -376,6 +402,112 @@ Body:
 
 The server persists this WorkerBinding.
 The server deploys pollers by configuration in `cs-cadence-poller`.
+
+## Egress policy
+
+The per-tenant network egress allowlist (roadmap E6.02). See
+`docs/15-security.md` "Network egress" for semantics; the wire shape
+and HTTP contract are below.
+
+### Get policy
+
+`GET /v1/tenants/{tenant}/egress-policy`
+
+Required action: `cs:egress:policy:read`.
+
+Response `200`:
+
+```json
+{
+  "allowed_hosts": ["api.partner.com", "*.example.com"],
+  "allowed_cidrs": ["203.0.113.0/24"],
+  "denied_hosts":  ["abuse.example.com"],
+  "default_deny":  true,
+  "updated_at_ms": 1731450000000
+}
+```
+
+When no policy has been uploaded the server returns the implicit
+default-deny stub `{"default_deny": true}` so CLI callers can render
+"no policy installed" without a dedicated 404 branch.
+
+### Put policy
+
+`PUT /v1/tenants/{tenant}/egress-policy`
+
+Required action: `cs:egress:policy:write`.
+
+Body: the same shape as the GET response (clients must omit
+`updated_at_ms`; the server stamps it).
+
+Validation:
+
+- Each `allowed_hosts` / `denied_hosts` entry must be a hostname or a
+  leading-`*.` wildcard (`*.example.com`). Mid-label wildcards
+  (`foo.*.example.com`) and bare `*` are rejected.
+- Each `allowed_cidrs` entry must parse with `net.ParseCIDR` or as a
+  bare IP literal (`192.0.2.1`, `2001:db8::1`).
+- A host cannot appear in both `allowed_hosts` and `denied_hosts`.
+- The private-IP block from `docs/02-requirements.md` still applies
+  at invoke time; CIDRs overlapping the blocked ranges parse fine
+  here but will be rejected by the runtime when used.
+
+Failures return `400` with `CS_VALIDATION_FAILED`. Success returns
+`200` with the persisted policy (including the server-stamped
+`updated_at_ms`).
+
+## Signing keys (E5.02)
+
+Tenant-scoped Ed25519 signing keys used by the publish handler to
+verify the `X-CS-Signature` header (see **Publish version**). Only the
+public half lives in the control plane; the private bytes are returned
+exactly once on rotate. See `docs/15-security.md` "Signing".
+
+### Rotate signing key
+
+`POST /v1/tenants/{tenant}/signing-keys/rotate`
+
+Required action: `cs:tenant:signing-key:rotate`.
+
+Generates a fresh Ed25519 keypair, persists the public half (and the
+new KID) under `cs:tenant:{tenant}:signing:ed25519:active`, and
+returns the private bytes once.
+
+Response `200`:
+
+```json
+{
+  "kid": "kid_a1b2c3d4e5f6",
+  "algorithm": "ed25519",
+  "public_key":  "<base64 32 bytes>",
+  "private_key": "<base64 64 bytes>",
+  "created_at_ms": 1731600000000
+}
+```
+
+The caller MUST persist `private_key` before discarding the response —
+the control plane never returns the private bytes again.
+
+### Get active signing key
+
+`GET /v1/tenants/{tenant}/signing-keys/active`
+
+Required action: `cs:tenant:signing-key:read`.
+
+Response `200`:
+
+```json
+{
+  "kid": "kid_a1b2c3d4e5f6",
+  "algorithm": "ed25519",
+  "public_key": "<base64 32 bytes>",
+  "created_at_ms": 1731600000000
+}
+```
+
+Errors:
+
+- `404 CS_SIGNATURE_KEY_NOT_FOUND` when the tenant has never rotated.
 
 ## Errors
 

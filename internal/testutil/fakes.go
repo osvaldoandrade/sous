@@ -83,6 +83,9 @@ type FakePersistence struct {
 	TryAcquireLeaseFn func(context.Context, string, string, time.Duration) (bool, error)
 	GetLeaseValueFn   func(context.Context, string) (string, error)
 	ExtendLeaseFn     func(context.Context, string, time.Duration) error
+
+	GetEgressPolicyFn func(context.Context, string) (api.EgressPolicy, error)
+	PutEgressPolicyFn func(context.Context, string, api.EgressPolicy) error
 }
 
 func (f *FakePersistence) Close() error {
@@ -483,6 +486,20 @@ func (f *FakePersistence) GetLeaseValue(ctx context.Context, key string) (string
 func (f *FakePersistence) ExtendLease(ctx context.Context, key string, ttl time.Duration) error {
 	if f.ExtendLeaseFn != nil {
 		return f.ExtendLeaseFn(ctx, key, ttl)
+	}
+	return nil
+}
+
+func (f *FakePersistence) GetEgressPolicy(ctx context.Context, tenant string) (api.EgressPolicy, error) {
+	if f.GetEgressPolicyFn != nil {
+		return f.GetEgressPolicyFn(ctx, tenant)
+	}
+	return api.EgressPolicy{}, cserrors.New(cserrors.CSValidationFailed, "egress policy not found")
+}
+
+func (f *FakePersistence) PutEgressPolicy(ctx context.Context, tenant string, policy api.EgressPolicy) error {
+	if f.PutEgressPolicyFn != nil {
+		return f.PutEgressPolicyFn(ctx, tenant, policy)
 	}
 	return nil
 }
