@@ -47,6 +47,8 @@ func main() {
 		err = handleSchedule(os.Args[2:])
 	case "cadence":
 		err = handleCadence(os.Args[2:])
+	case "doctor":
+		err = handleDoctor(os.Args[2:])
 	default:
 		usage()
 		err = fmt.Errorf("unknown command: %s", os.Args[1])
@@ -55,17 +57,11 @@ func main() {
 		os.Exit(0)
 	}
 	fmt.Fprintln(os.Stderr, "error:", err)
-	if strings.Contains(err.Error(), "runtime") {
-		os.Exit(3)
-	}
-	if strings.Contains(err.Error(), "server") {
-		os.Exit(2)
-	}
-	os.Exit(1)
+	os.Exit(exitCodeFor(err))
 }
 
 func usage() {
-	fmt.Println("cs <auth|fn|http|schedule|cadence> ...")
+	fmt.Println("cs <auth|fn|http|schedule|cadence|doctor> ...")
 }
 
 func handleAuth(args []string) error {

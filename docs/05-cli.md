@@ -260,9 +260,90 @@ cs cadence worker create payments-activities \
   --activity SousInvokeActivity=reconcile@prod
 ```
 
+## Doctor
+
+`cs doctor` probes the local environment for common configuration and
+connectivity issues. It is the first thing to run when a CLI command fails
+unexpectedly.
+
+```
+cs doctor [--api-url <url>] [--json] [--timeout-ms <ms>]
+```
+
+Checks performed (in order):
+
+1. **auth** — the auth config exists, is parseable, and contains
+   `tenant` + `token`.
+2. **control-plane** — `GET <api_url>/healthz` returns 2xx within the timeout.
+3. **runtime** — the bundled `cs-js` runtime executes the same canary bundle
+   used by `cs fn test`.
+4. **config-dir** — the user config directory (`$XDG_CONFIG_HOME/code-sous`
+   or `$HOME/.config/code-sous`) is writable.
+
+Flags:
+
+- `--api-url <url>` overrides the control-plane URL from the auth config.
+- `--json` emits a machine-readable report (`{checks: [{name, status,
+  detail, hint}]}`) suitable for agent parsing.
+- `--timeout-ms <ms>` HTTP probe timeout (default 2000ms).
+
+Example (healthy stack):
+
+```
+$ cs doctor
+check          status  detail
+auth           pass    tenant=t_abc123 api_url=http://localhost:8080
+control-plane  pass    GET http://localhost:8080/healthz -> 200
+runtime        pass    cs-js canary executed successfully
+config-dir     pass    /home/me/.config/code-sous
+```
+
+Example (control plane down):
+
+```
+$ cs doctor --api-url http://localhost:65535
+check          status  detail
+auth           pass    tenant=t_abc123 api_url=http://localhost:8080
+control-plane  fail    Get "http://localhost:65535/healthz": dial tcp ... — control plane unreachable at http://localhost:65535 — start `./bin/cs-control` or pass `--api-url`
+runtime        pass    cs-js canary executed successfully
+config-dir     pass    /home/me/.config/code-sous
+error: doctor: control-plane probe failed
+next step: control plane unreachable at http://localhost:65535 — start `./bin/cs-control` or pass `--api-url`
+$ echo $?
+2
+```
+
+### Exit codes
+
+- `0` all checks passed
+- `1` an `auth` or `config-dir` check failed (client-side problem)
+- `2` the `control-plane` check failed (server-side problem)
+- `3` the `runtime` check failed
+
+## Diagnostic CLI errors
+
+Errors from any `cs` subcommand follow a three-line shape so users and agents
+can extract the actionable next step without parsing free-form prose:
+
+```
+<one-line summary>
+cause: <wrapped error>
+next step: <action the user should take>
+```
+
+For example, a control-plane outage reports:
+
+```
+error: control plane unreachable at http://localhost:8080
+cause: Get "http://localhost:8080/v1/...": dial tcp 127.0.0.1:8080: connect: connection refused
+next step: start `./bin/cs-control` or pass `--api-url`; run `cs doctor` for details
+```
+
+The CLI's exit code reflects the error class (see "Exit codes" below).
+
 ## Exit codes
 
 - `0` success
-- `1` client error
-- `2` server error
-- `3` runtime error
+- `1` client error (missing flag, missing/invalid config, validation failure)
+- `2` server error (control plane unreachable or returned 4xx/5xx)
+- `3` runtime error (local `cs-js` execution failed)
