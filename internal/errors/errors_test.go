@@ -32,6 +32,7 @@ func TestStatusCodeMappings(t *testing.T) {
 		{CSRuntimeUnsupported, 400},
 		{CSRetryExhausted, 502},
 		{CSImportNotFound, 422},
+		{CSWorkflowNonDeterministic, 422},
 	}
 	for _, tc := range tests {
 		if got := StatusCode(tc.code); got != tc.want {

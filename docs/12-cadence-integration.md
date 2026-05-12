@@ -134,6 +134,99 @@ Operators should:
 4. Confirm a smoke-test activity round-trips successfully.
 5. Resume submissions.
 
+## Determinism rules
+
+Cadence Workflows are replayed against their history on every Decision.
+Code that observes wall-clock time, system entropy, async timers, or
+unmediated network IO will produce different results on the replay
+than on the original run, which Cadence surfaces as a
+nondeterministic-history failure hours after the offending publish.
+
+To catch these mistakes before they reach production, `cs-control` runs
+a publish-time static linter against every bundle whose manifest
+declares `cadence.kind: "workflow"`. The manifest opts in via:
+
+```json
+{
+  "schema": "cs.function.script.v1",
+  "runtime": "cs-js",
+  "entry": "function.js",
+  "handler": "default",
+  "cadence": { "kind": "workflow" }
+}
+```
+
+When `cadence` is omitted, or `cadence.kind` is `"activity"` (the
+default), the linter is skipped — activities run forward once per
+attempt and may freely call any of the APIs below.
+
+### Banned patterns
+
+The linter scans `function.js` plus every `deps/*.js` file in the
+bundle for the following call sites and rejects the publish with
+`CS_WORKFLOW_NON_DETERMINISTIC` (HTTP 422) when any are present:
+
+| Pattern                    | Why it's banned                                              | Use instead                              |
+|----------------------------|--------------------------------------------------------------|------------------------------------------|
+| `Date.now()`               | wall-clock read; differs across replays                      | `cs.workflow.now()`                      |
+| `new Date()` (no args)     | wall-clock read; differs across replays                      | `cs.workflow.now()`                      |
+| `Math.random()`            | system entropy; nondeterministic                             | `cs.workflow.sideEffect(...)`            |
+| `crypto.getRandomValues()` | system entropy; nondeterministic                             | `cs.workflow.sideEffect(...)`            |
+| `setTimeout`               | schedules real-time callbacks; not deterministic under replay | `cs.workflow.sleep(ms)`                  |
+| `setInterval`              | schedules real-time callbacks; not deterministic under replay | model recurrence via the workflow loop   |
+| `setImmediate`             | yields to host event loop                                    | keep workflow code synchronous between awaits |
+| `performance.now`          | monotonic clock read                                         | `cs.workflow.now()`                      |
+| `fetch(...)` (bare global) | unmediated network IO                                        | call `cs.http.fetch` from an Activity    |
+
+The error response carries a structured `violations[]` array so the
+publishing agent can render a per-call-site diagnostic:
+
+```json
+{
+  "error": {
+    "code": "CS_WORKFLOW_NON_DETERMINISTIC",
+    "message": "workflow function contains 2 nondeterministic call(s); see violations[]",
+    "violations": [
+      { "file": "function.js", "line": 4, "column": 11, "pattern": "Date.now",
+        "message": "Date.now() reads the wall clock; use cs.workflow.now() inside workflows." },
+      { "file": "deps/uuid.js", "line": 1, "column": 28, "pattern": "Math.random",
+        "message": "Math.random() is nondeterministic; use cs.workflow.sideEffect for entropy." }
+    ]
+  }
+}
+```
+
+### Escape hatch: `cs-determinism-allow`
+
+Some legitimate uses (e.g., a sentinel inside `cs.workflow.sideEffect`
+whose body the linter cannot statically prove safe) need to opt out a
+single call site. Authors annotate the line with the marker comment:
+
+```js
+const id = await cs.workflow.sideEffect(() => Math.random()); // cs-determinism-allow signed-off PR-1234
+```
+
+The linter ignores any banned-API match on a line containing
+`cs-determinism-allow`. The marker is intentionally scoped to the
+single line so each escape hatch is audited on its own at code-review
+time — the project policy is that every marker must reference the PR
+or ticket that approved it.
+
+### Limitations of v0.1
+
+The linter is a text scan over the raw bytes of the JS files. It does
+not parse the JS AST and therefore cannot:
+
+- distinguish `Math.random` inside a string literal from a real call
+  (text-scan flags both; wrap with the escape hatch if the false
+  positive is in a legitimate constant);
+- follow re-exports or chained property accesses (e.g.,
+  `globalThis.Date.now()` is not flagged);
+- detect runtime drift introduced through `eval` or `Function(...)`.
+
+A full AST-aware analyzer plus a replay harness are tracked under
+roadmap epic E8 and will land in a later phase.
+
 ## Lifecycle
 
 The control plane persists WorkerBindings.
