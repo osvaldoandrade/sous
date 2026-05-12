@@ -35,6 +35,8 @@ type invoker struct {
 	logger         *observability.Logger
 	inflight       chan struct{}
 	tenantInflight *tenantInflight
+	samplers       *samplerCache
+	clock          func() time.Time
 
 	mu          sync.Mutex
 	versionSems map[string]chan struct{}
@@ -67,6 +69,8 @@ func main() {
 		logger:         observability.NewLogger("cs-invoker-pool"),
 		inflight:       make(chan struct{}, max(1, cfg.CSInvokerPool.Workers.MaxInflight)),
 		tenantInflight: newTenantInflight(tenantInflightCapacity()),
+		samplers:       newSamplerCache(),
+		clock:          time.Now,
 		versionSems:    make(map[string]chan struct{}),
 	}
 	inv.runner = runtime.NewRunner(runtimeKV{store: store}, runtimePublisher{broker: broker}, cfg.CSInvokerPool.Limits.MaxResultBytes, cfg.CSInvokerPool.Limits.MaxErrorBytes, cfg.CSInvokerPool.Limits.MaxLogBytes)
@@ -211,14 +215,28 @@ func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, 
 		ResolvedVersion: version,
 	}
 	actTTL := time.Duration(i.cfg.CSControl.Limits.ActTTLSeconds) * time.Second
+
 	// Stamp parent/root activation IDs for agent decision-tree tracing (E7.01).
 	// When the trigger carries parent_activation_id (set by the gateway after
 	// reading X-CS-Parent-Activation), inherit the parent's root if known.
 	// Otherwise this is a root activation whose RootActivationID equals its
 	// own ID. See docs/14-observability.md.
 	resolveTraceParent(ctx, i.store, &activation)
-	if err := i.store.PutActivationRunning(ctx, activation, actTTL); err != nil {
-		return err
+
+	// E7.02: ask the sampler whether to persist this activation at all,
+	// keep only a skeleton row, or keep everything in full. Skipped
+	// activations bypass PutActivationRunning entirely; tail-sampled
+	// activations write the standard running row but withhold logs +
+	// result blob unless OnComplete promotes them. See
+	// docs/14-observability.md for the contract.
+	decider := i.sampler(req.Trigger)
+	samplingMeta := samplingMetaFromRequest(req)
+	initialDecision := decider.OnStart(samplingMeta)
+	activation.SamplingDecision = initialDecision.Reason
+	if initialDecision.PersistFull || initialDecision.Skeleton {
+		if err := i.store.PutActivationRunning(ctx, activation, actTTL); err != nil {
+			return err
+		}
 	}
 	if activation.ParentActivationID != "" {
 		if err := i.store.AppendActivationChild(ctx, activation.Tenant, activation.ParentActivationID, activation.ActivationID, actTTL); err != nil && i.logger != nil {
@@ -248,34 +266,53 @@ func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, 
 				" code="+string(cserrors.CSResultTooLarge))
 		}
 	}
+	// E7.02: ask the sampler what to do now that the runtime has returned.
+	// Tail samplers may promote a skeleton to a full record (record the
+	// result blob + logs) when the outcome matches an error/slow rule.
+	finalDecision := decider.OnComplete(samplingMeta, observability.SamplingOutcome{
+		Status:     out.Status,
+		DurationMS: out.DurationMS,
+	}, initialDecision)
+
 	terminal := activation
 	terminal.Status = out.Status
 	terminal.EndMS = time.Now().UnixMilli()
 	terminal.DurationMS = out.DurationMS
-	terminal.Error = out.Error
-	terminal.Result = out.Result
-	terminal.ResultTruncated = out.Truncated
-
-	updated, err := i.store.CompleteActivationCAS(ctx, terminal, actTTL)
-	if err != nil {
-		return err
-	}
-	if !updated {
-		return cserrors.New(cserrors.CSKVCASFailed, "activation state changed concurrently")
+	terminal.SamplingDecision = finalDecision.Reason
+	if finalDecision.PersistFull {
+		terminal.Error = out.Error
+		terminal.Result = out.Result
+		terminal.ResultTruncated = out.Truncated
 	}
 
-	for idx, line := range out.Logs {
-		if err := i.store.AppendLogChunk(ctx, req.Tenant, req.ActivationID, int64(idx), []byte(line), actTTL); err != nil {
-			i.logger.Warn(ctx, "failed to append log chunk: "+err.Error())
+	// Skipped activations did not write a running row, so there is no CAS
+	// row to update. Skeleton-only completions still CAS so the row
+	// transitions from running to its terminal status (with status +
+	// duration only — no result blob).
+	if initialDecision.PersistFull || initialDecision.Skeleton {
+		updated, err := i.store.CompleteActivationCAS(ctx, terminal, actTTL)
+		if err != nil {
+			return err
+		}
+		if !updated {
+			return cserrors.New(cserrors.CSKVCASFailed, "activation state changed concurrently")
 		}
 	}
-	// Append a CS_LOG_LIMIT_EXCEEDED sentinel chunk so log readers (CLI,
-	// dashboards) see a stable marker when the log buffer was capped at
-	// limits.MaxLogBytes. The runtime truncates the buffer; this writes
-	// the documented sentinel exactly once at the end.
-	if out.Truncated && len(out.Logs) > 0 {
-		sentinel := []byte("[warn] " + string(cserrors.CSLogLimitExceeded))
-		_ = i.store.AppendLogChunk(ctx, req.Tenant, req.ActivationID, int64(len(out.Logs)), sentinel, actTTL)
+
+	if finalDecision.PersistLogs {
+		for idx, line := range out.Logs {
+			if err := i.store.AppendLogChunk(ctx, req.Tenant, req.ActivationID, int64(idx), []byte(line), actTTL); err != nil {
+				i.logger.Warn(ctx, "failed to append log chunk: "+err.Error())
+			}
+		}
+		// Append a CS_LOG_LIMIT_EXCEEDED sentinel chunk so log readers
+		// (CLI, dashboards) see a stable marker when the log buffer was
+		// capped at limits.MaxLogBytes. The runtime truncates the buffer;
+		// this writes the documented sentinel exactly once at the end.
+		if out.Truncated && len(out.Logs) > 0 {
+			sentinel := []byte("[warn] " + string(cserrors.CSLogLimitExceeded))
+			_ = i.store.AppendLogChunk(ctx, req.Tenant, req.ActivationID, int64(len(out.Logs)), sentinel, actTTL)
+		}
 	}
 
 	result := api.InvocationResult{
@@ -364,6 +401,20 @@ func (i *invoker) acquireTenantInflight(ctx context.Context, req api.InvocationR
 // signalled by waiting rather than a 429.
 func isSyncTrigger(triggerType string) bool {
 	return triggerType == "http"
+}
+
+// sampler returns the Decider for the supplied trigger. It lazily
+// constructs samplers per normalized policy so stateful samplers (head)
+// keep their per-minute counters across invocations.
+func (i *invoker) sampler(trigger api.Trigger) observability.Decider {
+	if i.samplers == nil {
+		i.samplers = newSamplerCache()
+	}
+	clock := i.clock
+	if clock == nil {
+		clock = time.Now
+	}
+	return i.samplers.deciderFor(trigger, clock)
 }
 
 func (i *invoker) versionSemaphore(req api.InvocationRequest, maxConcurrency int) chan struct{} {

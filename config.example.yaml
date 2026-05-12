@@ -100,6 +100,23 @@ cs_invoker_pool:
     max_error_bytes: 65536
     max_log_bytes: 1048576
 
+# E7.02: activation sampling lives on each trigger record, not in this
+# YAML. The example below shows the shape cs-control accepts when
+# creating an HTTP trigger; see docs/14-observability.md and
+# docs/20-config-reference.md for the full reference.
+#
+# trigger:
+#   type: http
+#   source:
+#     method: POST
+#     path: /webhook
+#   sampling:
+#     mode: tail            # always (default) | head | tail | probabilistic
+#     head_per_minute: 50   # required when mode == head
+#     tail_on_error: true   # required (with tail_on_slow_ms) when mode == tail
+#     tail_on_slow_ms: 250
+#     probability: 0.05     # required when mode == probabilistic
+
 cs_scheduler:
   tick_ms: 1000
   max_catchup_ticks: 60

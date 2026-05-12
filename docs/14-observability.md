@@ -157,6 +157,65 @@ Response shape:
 }
 ```
 
+## Activation sampling (E7.02)
+
+The invoker can downsample activation records on a per-trigger basis so
+the volume of activation rows, logs, and result blobs written to KVRocks
+stays bounded under sustained load. Sampling is opt-in per trigger; an
+unset policy (or a trigger created before E7.02) keeps the historical
+"record everything" behaviour byte-for-byte.
+
+### Modes
+
+| Mode | Behaviour |
+|------|-----------|
+| `always` (default) | Records every activation in full. |
+| `head` | Records the first `head_per_minute` activations per (tenant, function-ref) per rolling minute. Subsequent activations in that window are not persisted at all (no activation row, no logs). |
+| `tail` | Always writes a skeleton row (`id`, `status`, `started_at`, `duration_ms`) and only promotes to a full record (result blob + logs) when the activation status is not `success` (`tail_on_error: true`) or when `duration_ms >= tail_on_slow_ms`. |
+| `probabilistic` | Hashes the activation id and keeps a fraction equal to `probability` (FNV-1a, deterministic across replicas). |
+
+### Configuration
+
+Sampling lives on the trigger record. Example YAML for a JSON-formatted
+trigger (the schema is identical when the trigger is created via the
+control-plane API):
+
+```yaml
+sampling:
+  mode: head            # always | head | tail | probabilistic
+  head_per_minute: 50   # only meaningful when mode == head
+  tail_on_error: true   # only meaningful when mode == tail
+  tail_on_slow_ms: 250  # only meaningful when mode == tail
+  probability: 0.05     # only meaningful when mode == probabilistic
+```
+
+Validation is enforced by `SamplingPolicy.Normalize`:
+
+- `mode: head` requires `head_per_minute > 0`.
+- `mode: tail` requires either `tail_on_error: true` or `tail_on_slow_ms > 0`.
+- `mode: probabilistic` requires `probability` in `[0, 1]`.
+- Unknown / unparseable policies fall back to `always` so a misconfigured
+  trigger never silently drops production traffic.
+
+### Retention impact
+
+Sampling reduces three storage signals:
+
+- **Activation rows** — skipped activations (head over cap, probabilistic
+  below threshold) skip both `PutActivationRunning` and
+  `CompleteActivationCAS`. There is no row to read; `GET .../activations/{id}`
+  returns `404`.
+- **Logs** — log chunks are only persisted when `PersistLogs` is true on
+  the final decision. Tail-sampled successes therefore drop log chunks
+  even though the skeleton row remains.
+- **Result blob** — the `result` and `error` fields are only stamped on
+  the terminal record when the final decision is `PersistFull`. Tail
+  successes write the row but leave both blobs nil.
+
+Each activation record carries the `sampling_decision` field
+(`always`, `head`, `tail`, `probabilistic`, `skipped`) so operators can
+audit the policy choice via the activation read API or KVRocks dumps.
+
 ## SLO reporting
 
 The platform's monthly availability targets are pinned in
