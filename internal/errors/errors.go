@@ -65,6 +65,13 @@ const (
 	// its retry budget against an unreachable downstream. See
 	// docs/02-requirements.md "Retry & DLQ" and docs/07-codeq-protocol.md.
 	CSRetryExhausted Code = "CS_RETRY_EXHAUSTED"
+	// CSImportNotFound is returned when cs-js function code attempts to
+	// resolve a bare specifier that is not present in the frozen import
+	// map of the bundle. The control plane freezes the import map at
+	// publish time (see docs/08-runtime-cs-js.md and roadmap task E5.01);
+	// the runtime refuses any specifier the publisher did not declare.
+	// Carries HTTP 422 (Unprocessable Entity) semantics.
+	CSImportNotFound Code = "CS_IMPORT_NOT_FOUND"
 )
 
 type CSError struct {
@@ -125,6 +132,8 @@ func StatusCode(code Code) int {
 		return http.StatusBadRequest // 400
 	case CSRetryExhausted:
 		return http.StatusBadGateway // 502
+	case CSImportNotFound:
+		return http.StatusUnprocessableEntity // 422
 	}
 	switch {
 	case strings.HasPrefix(string(code), "CS_AUTHN_"):

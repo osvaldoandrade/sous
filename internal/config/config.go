@@ -100,6 +100,16 @@ type Config struct {
 			// consumer map. Defaults to 10 seconds when zero.
 			RefreshSeconds int `yaml:"refresh_seconds"`
 		} `yaml:"subscriptions"`
+		// Publish controls the publish-time resolver (E5.01). The
+		// curated-mirror allowlist is empty by default so no remote
+		// fetching happens unless an operator opts in.
+		Publish struct {
+			Imports struct {
+				AllowedMirrors    []string `yaml:"allowed_mirrors"`
+				MaxBytesPerImport int      `yaml:"max_bytes_per_import"`
+				TimeoutMS         int      `yaml:"timeout_ms"`
+			} `yaml:"imports"`
+		} `yaml:"publish"`
 	} `yaml:"cs_control"`
 
 	CSHTTPGateway struct {

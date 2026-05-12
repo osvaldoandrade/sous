@@ -355,18 +355,47 @@ func (s *server) publishVersion(w http.ResponseWriter, r *http.Request) {
 		}
 		decoded[fn] = b
 	}
-	bundleBytes, sha, _, err := bundle.BuildCanonical(decoded)
+	// The draft sha256 covers the *uploaded* file set. Recompute it
+	// before the import resolver mutates the file map; the agent must
+	// see the same sha256 it computed locally.
+	_, draftSHA, _, err := bundle.BuildCanonical(decoded)
 	if err != nil {
 		cserrors.WriteHTTP(w, cserrors.New(cserrors.CSValidationFailed, err.Error()), requestID(r))
 		return
 	}
-	if sha != draft.SHA256 {
+	if draftSHA != draft.SHA256 {
 		cserrors.WriteHTTP(w, cserrors.New(cserrors.CSValidationFailed, "sha256 mismatch with draft"), requestID(r))
 		return
 	}
 	manifest, err := api.ParseManifest(decoded["manifest.json"])
 	if err != nil {
 		cserrors.WriteHTTP(w, cserrors.New(cserrors.CSValidationManifest, err.Error()), requestID(r))
+		return
+	}
+
+	// E5.01: resolve declared imports into a frozen deps/ subtree and a
+	// generated import-map.json. The resolver applies the curated mirror
+	// allowlist and a per-import size cap from config; bytes never leave
+	// the control plane at invoke time. See docs/08-runtime-cs-js.md.
+	resolver := bundle.NewResolver(bundle.ResolverOptions{
+		AllowedMirrors:    s.cfg.CSControl.Publish.Imports.AllowedMirrors,
+		MaxBytesPerImport: s.cfg.CSControl.Publish.Imports.MaxBytesPerImport,
+		Timeout:           time.Duration(s.cfg.CSControl.Publish.Imports.TimeoutMS) * time.Millisecond,
+	})
+	resolved, err := resolver.Resolve(r.Context(), manifest, decoded)
+	if err != nil {
+		cserrors.WriteHTTP(w, cserrors.New(cserrors.CSValidationFailed, err.Error()), requestID(r))
+		return
+	}
+	bundleBytes, sha, size, err := bundle.BuildCanonical(resolved.Files)
+	if err != nil {
+		cserrors.WriteHTTP(w, cserrors.New(cserrors.CSValidationFailed, err.Error()), requestID(r))
+		return
+	}
+	// The frozen bundle (uploaded files + deps/ + import-map.json) must
+	// still fit the 16 MiB cap. Hard ceiling per docs/26-capacity-and-limits.md.
+	if size > s.cfg.CSControl.Limits.MaxBundleBytes {
+		cserrors.WriteHTTP(w, cserrors.New(cserrors.CSBundleTooLarge, "bundle too large after freezing imports"), requestID(r))
 		return
 	}
 

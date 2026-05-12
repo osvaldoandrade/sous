@@ -81,6 +81,10 @@ The invoker must not remove fields in v0.1.
     "kv": { "prefixes": ["ctr:"], "ops": ["get","set"] },
     "codeq": { "publishTopics": ["jobs.*"] },
     "http": { "allowHosts": ["api.example.com"], "timeoutMs": 1500 }
+  },
+  "imports": {
+    "zod": { "url": "https://mirror.example.com/zod@3.22.4/index.js" },
+    "lib/internal": { "path": "lib/internal.js" }
   }
 }
 ```
@@ -120,6 +124,64 @@ and rejects manifests whose runtime has no registered handler with
 This PR ships only the `cs-js` slot. The `cs-python` and `cs-wasm`
 adapters will register themselves in subsequent releases without any
 change to the manifest schema.
+
+## Imports and import maps
+
+A `function.js` may declare external JavaScript dependencies in the
+optional `imports` block. Each entry maps a bare specifier (the string
+passed to `import`) to one of two sources:
+
+- `{ "url": "https://..." }` — fetched at publish time from a curated
+  mirror. The host must appear in
+  `cs_control.publish.imports.allowed_mirrors` (see
+  docs/20-config-reference.md and docs/15-security.md).
+- `{ "path": "..." }` — points at a file inside the uploaded bundle.
+
+`integrity` is optional. When provided it must be a SubResource
+Integrity string (`sha256-<base64>` or `sha384-<base64>`); the control
+plane recomputes the digest from the bytes it actually fetched and
+rejects the publish on mismatch.
+
+Resolution runs **once in cs-control at publish time**, never at invoke
+time. The control plane:
+
+1. Fetches or copies the bytes for each specifier.
+2. Verifies (or computes) the SRI digest.
+3. Writes the bytes into the canonical tar under `deps/<safe-name>`.
+4. Emits `import-map.json` in the bundle root with
+   `schema: "cs.importmap.v1"`, mapping each specifier to its frozen
+   path and integrity digest.
+
+At invoke time the cs-js runtime reads `import-map.json` and binds a
+host helper that resolves bare specifiers against the frozen bytes. The
+runtime verifies the SRI digest before letting any byte reach the
+isolate; a tampered bundle fails with `CS_IMPORT_NOT_FOUND`.
+
+Supported import statement shapes in `function.js`:
+
+```js
+import x from "spec"
+import * as ns from "spec"
+import { a, b as c } from "spec"
+import x, { a } from "spec"
+import "spec"
+```
+
+Dep modules may use `export default <expr>`, `export const|let|var
+NAME`, `export function NAME`, `export class NAME`, or
+`export { a, b as c }`.
+
+Hard rules:
+
+- **No build step.** The agent uploads UTF-8 source + manifest only.
+  The cs-control resolver is the only thing that touches the network
+  on a publisher's behalf.
+- **No network egress at invoke time.** Specifiers resolve against the
+  frozen bundle. There is no fallback path.
+- An undeclared specifier raises `CS_IMPORT_NOT_FOUND` (HTTP 422) at
+  invoke time. See docs/21-errors.md.
+- The 16 MiB bundle cap covers the *frozen* bundle (uploaded files +
+  `deps/**` + `import-map.json`). See docs/26-capacity-and-limits.md.
 
 ## Host API (`cs`)
 
