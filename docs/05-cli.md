@@ -35,13 +35,90 @@ cs fn create reconcile --namespace payments --runtime cs-js
 ### Init scaffold
 
 ```
-cs fn init reconcile --runtime cs-js
+cs fn init reconcile
+cs fn init reconcile --template scheduled-job
+cs fn init --list
 ```
 
 This command writes:
 
 - `function.js`
 - `manifest.json`
+- `README.md` (template-specific guide)
+
+`--template <name>` selects the scaffold (default: `http-handler`). An
+unknown name exits with code `1` (client error) and prints the available
+templates. `--list` prints one template per line with its one-line
+description.
+
+#### Templates
+
+| Template | Trigger | Capability stanza |
+| --- | --- | --- |
+| `http-handler` (default) | HTTP gateway (`api`) | `kv: ctr:` · `codeq: jobs.*` · `http: api.example.com` |
+| `scheduled-job` | `cs-scheduler` (`cs.timer`) | `kv: job:` · `codeq: jobs.scheduled.*` · `http: []` |
+| `cadence-activity` | `cs-cadence-poller` (`cadence`) | `kv: act:` · `codeq: cadence.activity.*` · `http: api.example.com` |
+| `codeq-consumer` | codeQ subscription | `kv: idem:` · `codeq: consumer.*` · `http: []` |
+
+Example `--list` output:
+
+```
+$ cs fn init --list
+cadence-activity        Cadence activity handler dispatched by `cs-cadence-poller`.
+codeq-consumer          codeQ consumer that processes subscribed messages with idempotent state.
+http-handler            HTTP handler invoked via `cs http invoke` or `cs fn invoke` with a JSON event.
+scheduled-job           Scheduled job invoked by `cs-scheduler` on a fixed interval.
+```
+
+Each template's `manifest.json` ships a capability stanza tailored to the
+trigger:
+
+`http-handler`:
+
+```json
+"capabilities": {
+  "kv": { "prefixes": ["ctr:"], "ops": ["get", "set", "del"] },
+  "codeq": { "publishTopics": ["jobs.*"] },
+  "http": { "allowHosts": ["api.example.com"], "timeoutMs": 1500 }
+}
+```
+
+`scheduled-job`:
+
+```json
+"capabilities": {
+  "kv": { "prefixes": ["job:"], "ops": ["get", "set", "del"] },
+  "codeq": { "publishTopics": ["jobs.scheduled.*"] },
+  "http": { "allowHosts": [], "timeoutMs": 1500 }
+}
+```
+
+`cadence-activity`:
+
+```json
+"capabilities": {
+  "kv": { "prefixes": ["act:"], "ops": ["get", "set", "del"] },
+  "codeq": { "publishTopics": ["cadence.activity.*"] },
+  "http": { "allowHosts": ["api.example.com"], "timeoutMs": 5000 }
+}
+```
+
+`codeq-consumer`:
+
+```json
+"capabilities": {
+  "kv": { "prefixes": ["idem:"], "ops": ["get", "set", "del"] },
+  "codeq": { "publishTopics": ["consumer.*"] },
+  "http": { "allowHosts": [], "timeoutMs": 1500 }
+}
+```
+
+Every scaffold passes `cs fn test` against its sample event out of the box
+(`status=success`).
+
+Templates are packaged into the binary via `//go:embed`
+(`internal/cli/templates/`); no runtime filesystem lookup or network call
+is required to scaffold a function.
 
 ### Test locally
 

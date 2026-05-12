@@ -1,0 +1,13 @@
+{
+  "name": "{{.Name}}",
+  "schema": "cs.function.script.v1",
+  "runtime": "cs-js",
+  "entry": "function.js",
+  "handler": "default",
+  "limits": { "timeoutMs": 30000, "memoryMb": 128, "maxConcurrency": 1 },
+  "capabilities": {
+    "kv": { "prefixes": ["act:"], "ops": ["get", "set", "del"] },
+    "codeq": { "publishTopics": ["cadence.activity.*"] },
+    "http": { "allowHosts": ["api.example.com"], "timeoutMs": 5000 }
+  }
+}

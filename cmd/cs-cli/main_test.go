@@ -67,7 +67,7 @@ func TestFnInitAndFnTest(t *testing.T) {
 
 	base := t.TempDir()
 	dir := filepath.Join(base, "fn1")
-	if err := fnInit(dir); err != nil {
+	if err := fnInit([]string{dir}); err != nil {
 		t.Fatalf("fnInit failed: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "function.js")); err != nil {
@@ -144,7 +144,7 @@ func TestFunctionAndTransportCommands(t *testing.T) {
 	}
 
 	fnDir := filepath.Join(t.TempDir(), "fn1")
-	if err := fnInit(fnDir); err != nil {
+	if err := fnInit([]string{fnDir}); err != nil {
 		t.Fatalf("fnInit failed: %v", err)
 	}
 
@@ -474,7 +474,7 @@ func TestCLIValidationMatrix(t *testing.T) {
 	}
 
 	fnDir := filepath.Join(t.TempDir(), "fn-error")
-	if err := fnInit(fnDir); err != nil {
+	if err := fnInit([]string{fnDir}); err != nil {
 		t.Fatalf("fnInit for validation matrix failed: %v", err)
 	}
 	if err := saveAuthConfig(authConfig{APIURL: "http://127.0.0.1:1", Tenant: "t_abc123", Token: "tok"}); err != nil {
@@ -549,7 +549,7 @@ func TestAuthPathAndFnInitErrorBranches(t *testing.T) {
 	if err := os.WriteFile(invalidDirPath, []byte("x"), 0o600); err != nil {
 		t.Fatalf("write invalid dir file: %v", err)
 	}
-	if err := fnInit(invalidDirPath); err == nil {
+	if err := fnInit([]string{invalidDirPath}); err == nil {
 		t.Fatal("expected fnInit failure when target path is a file")
 	}
 }

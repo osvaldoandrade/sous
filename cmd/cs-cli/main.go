@@ -20,6 +20,7 @@ import (
 
 	"github.com/osvaldoandrade/sous/internal/api"
 	"github.com/osvaldoandrade/sous/internal/bundle"
+	"github.com/osvaldoandrade/sous/internal/cli/templates"
 	"github.com/osvaldoandrade/sous/internal/runtime"
 )
 
@@ -109,10 +110,7 @@ func handleFunction(args []string) error {
 	}
 	switch args[0] {
 	case "init":
-		if len(args) < 2 {
-			return errors.New("usage: cs fn init <name>")
-		}
-		return fnInit(args[1])
+		return fnInit(args[1:])
 	case "create":
 		return fnCreate(args[1:])
 	case "test":
@@ -136,36 +134,86 @@ func handleFunction(args []string) error {
 	}
 }
 
-func fnInit(name string) error {
-	dir := name
+const defaultTemplate = "http-handler"
+
+// reorderFlags moves recognised flags (and their values) before positional
+// args so that `flag.FlagSet.Parse` accepts e.g. `cs fn init <name> --template x`.
+func reorderFlags(fs *flag.FlagSet, args []string) []string {
+	var flags, positional []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			positional = append(positional, args[i+1:]...)
+			break
+		}
+		if !strings.HasPrefix(a, "-") || a == "-" {
+			positional = append(positional, a)
+			continue
+		}
+		flags = append(flags, a)
+		name := strings.TrimLeft(a, "-")
+		if strings.ContainsRune(name, '=') {
+			continue
+		}
+		f := fs.Lookup(name)
+		if f == nil {
+			continue
+		}
+		if bf, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && bf.IsBoolFlag() {
+			continue
+		}
+		if i+1 < len(args) {
+			i++
+			flags = append(flags, args[i])
+		}
+	}
+	return append(flags, positional...)
+}
+
+func fnInit(args []string) error {
+	fs := flag.NewFlagSet("fn init", flag.ContinueOnError)
+	var templateName string
+	var listTemplates bool
+	fs.StringVar(&templateName, "template", defaultTemplate, "Template name (see --list)")
+	fs.BoolVar(&listTemplates, "list", false, "List available templates and exit")
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
+		return err
+	}
+	if listTemplates {
+		for _, name := range templates.Names() {
+			desc := templates.Description(name)
+			if desc == "" {
+				fmt.Println(name)
+				continue
+			}
+			fmt.Printf("%s\t%s\n", name, desc)
+		}
+		return nil
+	}
+	if fs.NArg() < 1 {
+		return errors.New("usage: cs fn init <name> [--template <name>] [--list]")
+	}
+	if !templates.Exists(templateName) {
+		return fmt.Errorf("unknown template %q (available: %s)", templateName, strings.Join(templates.Names(), ", "))
+	}
+	dir := fs.Arg(0)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	functionJS := `export default async function handle(event, ctx) {
-  cs.log.info({ event, activation_id: ctx.activation_id })
-  return { statusCode: 200, headers: {"content-type":"application/json"}, body: JSON.stringify({ ok: true }), isBase64Encoded: false }
-}
-`
-	manifest := `{
-  "schema": "cs.function.script.v1",
-  "runtime": "cs-js",
-  "entry": "function.js",
-  "handler": "default",
-  "limits": { "timeoutMs": 3000, "memoryMb": 64, "maxConcurrency": 1 },
-  "capabilities": {
-    "kv": { "prefixes": ["ctr:"], "ops": ["get", "set", "del"] },
-    "codeq": { "publishTopics": ["jobs.*"] },
-    "http": { "allowHosts": ["api.example.com"], "timeoutMs": 1500 }
-  }
-}
-`
-	if err := os.WriteFile(filepath.Join(dir, "function.js"), []byte(functionJS), 0o644); err != nil {
+	files, err := templates.Render(templateName, templates.Variables{Name: filepath.Base(dir)})
+	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(manifest), 0o644); err != nil {
-		return err
+	for name, data := range files {
+		dest := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(dest, data, 0o644); err != nil {
+			return err
+		}
 	}
-	fmt.Println("initialized", dir)
+	fmt.Printf("initialized %s (template=%s)\n", dir, templateName)
 	return nil
 }
 
