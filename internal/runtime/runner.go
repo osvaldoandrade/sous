@@ -126,6 +126,29 @@ func (r *Runner) Execute(ctx context.Context, bundleBytes []byte, request api.In
 		out.DurationMS = time.Since(start).Milliseconds()
 		return out
 	}
+	// Dispatch on manifest.runtime. The cs-js fast path falls through
+	// unchanged: every byte that follows in this function is the v0.1
+	// behaviour, only reached when the manifest targets cs-js (the
+	// implicit default for an empty runtime field). Non-cs-js runtimes
+	// resolve to a registered Executor in DefaultRegistry — wasm and
+	// python install themselves via init() functions, so importing
+	// those packages is enough to wire them in. When the adapter
+	// package is not imported (typical of unit-test binaries that
+	// only exercise the JS path), selectRunner returns nil and we
+	// return an explicit CS_RUNTIME_UNSUPPORTED so the caller does
+	// not silently run the wrong runtime.
+	if adapter := selectRunner(manifest.Runtime); adapter != nil {
+		return adapter.Execute(ctx, bundleBytes, request)
+	}
+	if !isCSJS(manifest.Runtime) {
+		out.Error = &api.InvocationError{
+			Type:    "RuntimeUnsupported",
+			Message: "runtime not installed in this binary: " + manifest.Runtime,
+		}
+		out.ResolvedCode = cserrors.CSRuntimeUnsupported
+		out.DurationMS = time.Since(start).Milliseconds()
+		return out
+	}
 	// E5.01: load the frozen import map (if any) so the runtime can
 	// satisfy bare specifiers locally. LoadImportMap returns an empty
 	// map when import-map.json is absent — the v0.1 single-file path.
@@ -789,6 +812,43 @@ func denyPrivateHost(hostname string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// selectRunner returns the registered Executor for a non-cs-js
+// runtime, or nil to indicate the caller should use the cs-js fast
+// path. The cs-js runtime is the implicit default and lives on
+// *Runner itself, so we deliberately skip the registry lookup for
+// it — there is no SimpleHandler-to-Executor coercion to do, and
+// returning *Runner here would cause an infinite recursion on
+// Execute. Adapter packages (internal/runtime/wasm, internal/runtime/
+// python) register their Executor with DefaultRegistry via init()
+// functions, so a blank import of the package is enough to wire in
+// the runtime.
+func selectRunner(runtime string) Executor {
+	if isCSJS(runtime) {
+		return nil
+	}
+	handler, ok := DefaultRegistry.Lookup(runtime)
+	if !ok || handler == nil {
+		return nil
+	}
+	exec, ok := handler.(Executor)
+	if !ok {
+		// A SimpleHandler is registered for the runtime name (so the
+		// control plane accepts publishes) but no concrete Executor
+		// is installed in this binary. Caller surfaces this as
+		// CS_RUNTIME_UNSUPPORTED.
+		return nil
+	}
+	return exec
+}
+
+// isCSJS reports whether the runtime identifier means "the in-tree
+// cs-js Goja path implemented on *Runner". Empty string is the v0.1
+// implicit default and resolves to cs-js (manifests pre-dating the
+// runtime discriminator round-trip unchanged).
+func isCSJS(runtime string) bool {
+	return runtime == "" || runtime == api.RuntimeCSJS
 }
 
 func isPrivateIP(ip net.IP) bool {

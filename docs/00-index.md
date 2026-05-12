@@ -11,6 +11,8 @@
 - `06-storage-kvrocks.md`
 - `07-codeq-protocol.md`
 - `08-runtime-cs-js.md`
+- `08b-runtime-cs-wasm.md`
+- `08c-runtime-cs-python.md`
 - `09-invoker-pool.md`
 - `10-http-invoke.md`
 - `11-scheduler.md`

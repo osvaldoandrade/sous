@@ -28,6 +28,15 @@ import (
 	"github.com/osvaldoandrade/sous/internal/plugins/secrets"
 	"github.com/osvaldoandrade/sous/internal/runtime"
 	"github.com/osvaldoandrade/sous/internal/runtime/egress"
+	// Blank-import the cs-python and cs-wasm adapter packages so their
+	// init() functions register concrete Executors with
+	// runtime.DefaultRegistry. Without these imports the registry only
+	// holds the placeholder SimpleHandlers from internal/runtime/
+	// registry.go init() and Runner.Execute returns
+	// CS_RUNTIME_UNSUPPORTED for any non-cs-js manifest. See
+	// docs/08c-runtime-cs-python.md and docs/08b-runtime-cs-wasm.md.
+	_ "github.com/osvaldoandrade/sous/internal/runtime/python"
+	_ "github.com/osvaldoandrade/sous/internal/runtime/wasm"
 )
 
 type invoker struct {

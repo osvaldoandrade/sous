@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"sort"
 	"sync"
 
@@ -16,6 +17,24 @@ import (
 type Handler interface {
 	// Name returns the canonical runtime identifier (e.g. "cs-js").
 	Name() string
+}
+
+// Executor is the optional extension of Handler implemented by adapters
+// that own an in-process execution path (cs-python via subprocess in
+// v0.1, cs-wasm via wazero, the embedded cs-python adapter when it
+// lands). The cs-js runner does not implement this interface because
+// its Execute lives on *Runner itself and the dispatch helper in
+// runner.go short-circuits to it before consulting the registry.
+//
+// Adapter packages register a concrete Executor by calling
+// DefaultRegistry.Register at init time; runner.go's selectRunner
+// asks the registry whether the manifest runtime resolves to an
+// Executor, and falls back to the cs-js fast path when no concrete
+// adapter is installed (so unit-test binaries that don't import the
+// wasm / python packages keep working).
+type Executor interface {
+	Handler
+	Execute(ctx context.Context, bundleBytes []byte, request api.InvocationRequest) ExecutionOutput
 }
 
 // Registry tracks the runtime adapters available to the control plane.
