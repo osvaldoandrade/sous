@@ -38,6 +38,7 @@ The platform defines these actions:
 - `cs:cadence:worker:delete`
 - `cs:cadence:worker:read`
 - `cs:activation:read`
+- `cs:audit:read`
 
 ## Resources
 

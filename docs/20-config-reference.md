@@ -34,6 +34,14 @@ plugins:
         results: cs.results
         dlq_invoke: cs.dlq.invoke
         dlq_results: cs.dlq.results
+  audit:
+    # E6.03: control-plane audit log stream. See docs/14-observability.md
+    # "Audit" for the event shape, sink contract, and replay endpoint.
+    sink: stdout            # stdout (default) | codeq | webhook
+    topic_prefix: cs.audit  # codeq sink only; topic becomes <prefix>.<tenant>
+    webhook_url: ""         # webhook sink only; POST target URL
+    hmac_secret: ""         # webhook sink only; HMAC-SHA256 signing key
+    history_limit: 1000     # per-tenant ring buffer size for the replay endpoint
 
 # Legacy compatibility section (optional during migration window).
 kvrocks:

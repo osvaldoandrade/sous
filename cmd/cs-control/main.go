@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/osvaldoandrade/sous/internal/api"
+	"github.com/osvaldoandrade/sous/internal/audit"
 	"github.com/osvaldoandrade/sous/internal/authz"
 	"github.com/osvaldoandrade/sous/internal/bundle"
 	"github.com/osvaldoandrade/sous/internal/config"
@@ -32,10 +34,11 @@ import (
 )
 
 type server struct {
-	cfg    config.Config
-	store  persistence.Provider
-	broker messaging.Provider
-	logger *observability.Logger
+	cfg      config.Config
+	store    persistence.Provider
+	broker   messaging.Provider
+	logger   *observability.Logger
+	recorder *audit.Recorder
 }
 
 func main() {
@@ -59,7 +62,26 @@ func main() {
 	}
 	defer broker.Close()
 
-	s := &server{cfg: cfg, store: store, broker: broker, logger: observability.NewLogger("cs-control")}
+	logger := observability.NewLogger("cs-control")
+	auditSink, err := audit.NewSinkFromConfig(audit.Config{
+		Sink:         cfg.Plugins.Audit.Sink,
+		TopicPrefix:  cfg.Plugins.Audit.TopicPrefix,
+		WebhookURL:   cfg.Plugins.Audit.WebhookURL,
+		HMACSecret:   cfg.Plugins.Audit.HMACSecret,
+		HistoryLimit: cfg.Plugins.Audit.HistoryLimit,
+	}, broker, os.Stdout)
+	if err != nil {
+		panic(err)
+	}
+	recorder := audit.NewRecorder(
+		auditSink,
+		store,
+		logger,
+		time.Duration(cfg.CSControl.Limits.ActTTLSeconds)*time.Second,
+		cfg.Plugins.Audit.HistoryLimit,
+	)
+
+	s := &server{cfg: cfg, store: store, broker: broker, logger: logger, recorder: recorder}
 	if err := s.serve(); err != nil {
 		panic(err)
 	}
@@ -99,6 +121,7 @@ func (s *server) serve() error {
 		pr.Post("/v1/tenants/{tenant}/namespaces/{namespace}/cadence/workers", s.createWorkerBinding)
 		pr.Delete("/v1/tenants/{tenant}/namespaces/{namespace}/cadence/workers/{name}", s.deleteWorkerBinding)
 		s.subscriptionRoutes(pr)
+		pr.Get("/v1/tenants/{tenant}/audit", s.getAuditHistory)
 	})
 
 	httpServer := &http.Server{
@@ -158,8 +181,30 @@ func requestID(r *http.Request) string {
 	return observability.RequestIDFromContext(r.Context())
 }
 
+// auditAfterCommit emits a success-outcome audit event for a
+// control-plane mutation handler. Call after the kv mutation commits
+// — the function name is the load-bearing contract documented in
+// docs/14-observability.md (we never log a phantom mutation).
+//
+// principal carries the actor sub. resource is a URN-style identifier
+// (e.g., fn://tenant/ns/name@v3). detail is an optional structured
+// map; secret material must NOT be passed in.
+func (s *server) auditAfterCommit(r *http.Request, principal authz.Principal, action, resource string, detail map[string]any) {
+	if s.recorder == nil {
+		return
+	}
+	tenant := chi.URLParam(r, "tenant")
+	if principal.Tenant != "" {
+		tenant = principal.Tenant
+	}
+	event := audit.NewEvent(tenant, principal.Sub, action, resource, audit.OutcomeSuccess)
+	event.RequestID = requestID(r)
+	event.Detail = detail
+	_ = s.recorder.AfterCommit(r.Context(), event)
+}
+
 func (s *server) createFunction(w http.ResponseWriter, r *http.Request) {
-	_, tenant, namespace, _, ok := s.authorize(w, r, "cs:function:create")
+	principal, tenant, namespace, _, ok := s.authorize(w, r, "cs:function:create")
 	if !ok {
 		return
 	}
@@ -207,6 +252,9 @@ func (s *server) createFunction(w http.ResponseWriter, r *http.Request) {
 	if !created {
 		status = http.StatusOK
 	}
+	if created {
+		s.auditAfterCommit(r, principal, "function.create", fmt.Sprintf("fn://%s/%s/%s", tenant, namespace, stored.Name), map[string]any{"runtime": stored.Runtime})
+	}
 	api.WriteJSON(w, status, stored)
 }
 
@@ -246,7 +294,7 @@ func (s *server) readFunction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) deleteFunction(w http.ResponseWriter, r *http.Request) {
-	_, tenant, namespace, name, ok := s.authorize(w, r, "cs:function:delete")
+	principal, tenant, namespace, name, ok := s.authorize(w, r, "cs:function:delete")
 	if !ok {
 		return
 	}
@@ -254,11 +302,12 @@ func (s *server) deleteFunction(w http.ResponseWriter, r *http.Request) {
 		cserrors.WriteHTTP(w, err, requestID(r))
 		return
 	}
+	s.auditAfterCommit(r, principal, "function.delete", fmt.Sprintf("fn://%s/%s/%s", tenant, namespace, name), nil)
 	api.WriteJSON(w, http.StatusOK, map[string]any{"status": "deleted"})
 }
 
 func (s *server) uploadDraft(w http.ResponseWriter, r *http.Request) {
-	_, tenant, namespace, name, ok := s.authorize(w, r, "cs:function:draft:upload")
+	principal, tenant, namespace, name, ok := s.authorize(w, r, "cs:function:draft:upload")
 	if !ok {
 		return
 	}
@@ -306,6 +355,7 @@ func (s *server) uploadDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = bundleBytes
+	s.auditAfterCommit(r, principal, "function.draft.upload", fmt.Sprintf("fn://%s/%s/%s/draft/%s", tenant, namespace, name, draftID), map[string]any{"sha256": sha, "size_bytes": size})
 	api.WriteJSON(w, http.StatusOK, map[string]any{
 		"draft_id":      draftID,
 		"sha256":        sha,
@@ -315,7 +365,7 @@ func (s *server) uploadDraft(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) publishVersion(w http.ResponseWriter, r *http.Request) {
-	_, tenant, namespace, name, ok := s.authorize(w, r, "cs:function:publish")
+	principal, tenant, namespace, name, ok := s.authorize(w, r, "cs:function:publish")
 	if !ok {
 		return
 	}
@@ -439,11 +489,12 @@ func (s *server) publishVersion(w http.ResponseWriter, r *http.Request) {
 		cserrors.WriteHTTP(w, err, requestID(r))
 		return
 	}
+	s.auditAfterCommit(r, principal, "function.publish", fmt.Sprintf("fn://%s/%s/%s@v%d", tenant, namespace, name, version), map[string]any{"sha256": sha, "alias": req.Alias, "draft_id": draft.DraftID})
 	api.WriteJSON(w, http.StatusCreated, map[string]any{"version": version, "sha256": sha, "published_at_ms": now})
 }
 
 func (s *server) setAlias(w http.ResponseWriter, r *http.Request) {
-	_, tenant, namespace, name, ok := s.authorize(w, r, "cs:function:alias:set")
+	principal, tenant, namespace, name, ok := s.authorize(w, r, "cs:function:alias:set")
 	if !ok {
 		return
 	}
@@ -469,6 +520,7 @@ func (s *server) setAlias(w http.ResponseWriter, r *http.Request) {
 		cserrors.WriteHTTP(w, err, requestID(r))
 		return
 	}
+	s.auditAfterCommit(r, principal, "function.alias.set", fmt.Sprintf("fn://%s/%s/%s/alias/%s", tenant, namespace, name, alias), map[string]any{"version": req.Version})
 	api.WriteJSON(w, http.StatusOK, map[string]any{"alias": alias, "version": req.Version, "updated_at_ms": time.Now().UnixMilli()})
 }
 
@@ -738,7 +790,7 @@ func writeLogsSSE(w http.ResponseWriter, chunks []string, next int64, truncated 
 }
 
 func (s *server) createSchedule(w http.ResponseWriter, r *http.Request) {
-	_, tenant, namespace, _, ok := s.authorize(w, r, "cs:schedule:create")
+	principal, tenant, namespace, _, ok := s.authorize(w, r, "cs:schedule:create")
 	if !ok {
 		return
 	}
@@ -770,11 +822,12 @@ func (s *server) createSchedule(w http.ResponseWriter, r *http.Request) {
 		cserrors.WriteHTTP(w, err, requestID(r))
 		return
 	}
+	s.auditAfterCommit(r, principal, "schedule.create", fmt.Sprintf("schedule://%s/%s/%s", tenant, namespace, rec.Name), map[string]any{"every_seconds": rec.EverySeconds, "overlap_policy": rec.OverlapPolicy})
 	api.WriteJSON(w, http.StatusCreated, rec)
 }
 
 func (s *server) deleteSchedule(w http.ResponseWriter, r *http.Request) {
-	_, tenant, namespace, _, ok := s.authorize(w, r, "cs:schedule:delete")
+	principal, tenant, namespace, _, ok := s.authorize(w, r, "cs:schedule:delete")
 	if !ok {
 		return
 	}
@@ -787,11 +840,12 @@ func (s *server) deleteSchedule(w http.ResponseWriter, r *http.Request) {
 		cserrors.WriteHTTP(w, err, requestID(r))
 		return
 	}
+	s.auditAfterCommit(r, principal, "schedule.delete", fmt.Sprintf("schedule://%s/%s/%s", tenant, namespace, name), nil)
 	api.WriteJSON(w, http.StatusOK, map[string]any{"status": "deleted"})
 }
 
 func (s *server) createWorkerBinding(w http.ResponseWriter, r *http.Request) {
-	_, tenant, namespace, _, ok := s.authorize(w, r, "cs:cadence:worker:create")
+	principal, tenant, namespace, _, ok := s.authorize(w, r, "cs:cadence:worker:create")
 	if !ok {
 		return
 	}
@@ -826,11 +880,12 @@ func (s *server) createWorkerBinding(w http.ResponseWriter, r *http.Request) {
 		cserrors.WriteHTTP(w, err, requestID(r))
 		return
 	}
+	s.auditAfterCommit(r, principal, "cadence.worker.create", fmt.Sprintf("cadence://%s/%s/%s", tenant, namespace, rec.Name), map[string]any{"domain": rec.Domain, "tasklist": rec.Tasklist})
 	api.WriteJSON(w, http.StatusCreated, rec)
 }
 
 func (s *server) deleteWorkerBinding(w http.ResponseWriter, r *http.Request) {
-	_, tenant, namespace, _, ok := s.authorize(w, r, "cs:cadence:worker:delete")
+	principal, tenant, namespace, _, ok := s.authorize(w, r, "cs:cadence:worker:delete")
 	if !ok {
 		return
 	}
@@ -843,6 +898,7 @@ func (s *server) deleteWorkerBinding(w http.ResponseWriter, r *http.Request) {
 		cserrors.WriteHTTP(w, err, requestID(r))
 		return
 	}
+	s.auditAfterCommit(r, principal, "cadence.worker.delete", fmt.Sprintf("cadence://%s/%s/%s", tenant, namespace, name), nil)
 	api.WriteJSON(w, http.StatusOK, map[string]any{"status": "deleted"})
 }
 

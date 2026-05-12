@@ -76,6 +76,16 @@ type Config struct {
 				} `yaml:"topics"`
 			} `yaml:"codeq"`
 		} `yaml:"messaging"`
+		Audit struct {
+			// Sink selects the audit driver: "stdout" (default),
+			// "codeq", or "webhook". See docs/14-observability.md
+			// "Audit" and docs/20-config-reference.md "plugins.audit".
+			Sink         string `yaml:"sink"`
+			TopicPrefix  string `yaml:"topic_prefix"`
+			WebhookURL   string `yaml:"webhook_url"`
+			HMACSecret   string `yaml:"hmac_secret"`
+			HistoryLimit int    `yaml:"history_limit"`
+		} `yaml:"audit"`
 	} `yaml:"plugins"`
 
 	CSControl struct {
@@ -261,6 +271,9 @@ func syncPluginConfig(cfg *Config) {
 	}
 	if cfg.Plugins.Messaging.Driver == "" {
 		cfg.Plugins.Messaging.Driver = "codeq"
+	}
+	if cfg.Plugins.Audit.Sink == "" {
+		cfg.Plugins.Audit.Sink = "stdout"
 	}
 
 	if cfg.Plugins.AuthN.Tikti.IntrospectionURL == "" {

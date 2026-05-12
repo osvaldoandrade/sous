@@ -28,6 +28,16 @@ plugins:
         results: cs.results
         dlq_invoke: cs.dlq.invoke
         dlq_results: cs.dlq.results
+  audit:
+    # E6.03: control-plane audit log stream. Sink drivers:
+    #   stdout  - one JSON line per event on cs-control stdout (default).
+    #   codeq   - publish to <topic_prefix>.<tenant>.
+    #   webhook - HMAC-signed POST to webhook_url.
+    sink: stdout
+    topic_prefix: cs.audit
+    webhook_url: ""
+    hmac_secret: ""
+    history_limit: 1000
 
 # Legacy compatibility fields (optional during migration window).
 kvrocks:
