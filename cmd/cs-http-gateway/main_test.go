@@ -350,8 +350,11 @@ func TestServeAuthNCreationErrorAndInvokeAdditionalBranches(t *testing.T) {
 		Roles:  []string{"cs:function:invoke:http", "role:required"},
 	})
 	s.invokeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected body-too-large bad request, got %d", w.Code)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected body-too-large 413, got %d", w.Code)
+	}
+	if env := decodeError(t, w.Body.Bytes()); env.Error.Code != cserrors.CSBodyTooLarge {
+		t.Fatalf("body-too-large code=%s want=%s", env.Error.Code, cserrors.CSBodyTooLarge)
 	}
 
 	// query too large branch

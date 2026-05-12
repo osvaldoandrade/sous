@@ -269,7 +269,7 @@ func (s *server) uploadDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if size > s.cfg.CSControl.Limits.MaxBundleBytes {
-		cserrors.WriteHTTP(w, cserrors.New(cserrors.CSValidationBundle, "bundle too large"), requestID(r))
+		cserrors.WriteHTTP(w, cserrors.New(cserrors.CSBundleTooLarge, "bundle too large"), requestID(r))
 		return
 	}
 	draftID := "drf_" + strings.ReplaceAll(uuid.NewString(), "-", "")
