@@ -64,6 +64,13 @@ plugins:
       namespace: ""
       # Per-request timeout. Bounded by the activation deadline.
       timeout_ms: 2000
+  signing:
+    # E5.02 publish-time signature enforcement. Default false keeps the
+    # pre-E5.02 contract: signatures are recorded when provided but not
+    # required. Flip to true once every active tenant has rotated a
+    # signing key; the publish handler then rejects unsigned uploads
+    # with CS_SIGNATURE_MISSING. See docs/15-security.md.
+    required: false
 
 # Legacy compatibility fields (optional during migration window).
 kvrocks:

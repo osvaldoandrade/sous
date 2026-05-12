@@ -140,3 +140,12 @@ func SubscriptionIndexKey(tenant, namespace string) string {
 func TenantEgressPolicyKey(tenant string) string {
 	return "cs:tenant:" + tenant + ":egress:policy"
 }
+
+// TenantSigningKeysKey holds the active Ed25519 signing key the publish
+// handler verifies against (E5.02). The value is a JSON-encoded
+// api.TenantSigningKey carrying the KID, algorithm, public key bytes,
+// and created_at_ms. There is at most one active key per tenant in
+// v0.1; multi-key rotation lives in a follow-up.
+func TenantSigningKeysKey(tenant string) string {
+	return "cs:tenant:" + tenant + ":signing:ed25519:active"
+}

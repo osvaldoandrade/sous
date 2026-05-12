@@ -241,6 +241,14 @@ func (i *invoker) executeOnce(ctx context.Context, env messaging.Envelope, req a
 	if !bundle.VerifySHA256(bundleBytes, versionMeta.SHA256) {
 		return api.InvocationResult{}, cserrors.New(cserrors.CSValidationFailed, "bundle sha mismatch")
 	}
+	// E5.02: re-verify the publish-time signature when one is persisted
+	// on the version record. Versions published before E5.02
+	// (Signature == nil) are accepted for backward compatibility.
+	if versionMeta.Signature != nil {
+		if err := verifyInvokeSignature(ctx, i.store, versionMeta, req); err != nil {
+			return api.InvocationResult{}, err
+		}
+	}
 	sem := i.versionSemaphore(req, max(1, versionMeta.Config.MaxConcurrency))
 	select {
 	case sem <- struct{}{}:

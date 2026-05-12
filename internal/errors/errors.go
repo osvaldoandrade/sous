@@ -105,6 +105,10 @@ const (
 	// from the activation log. Carries HTTP 403 (Forbidden)
 	// semantics. See docs/15-security.md "Network egress".
 	CSEgressDenied Code = "CS_EGRESS_DENIED"
+	// E5.02 signed-bundle errors. See docs/15-security.md "Signing".
+	CSSignatureMissing     Code = "CS_SIGNATURE_MISSING"
+	CSSignatureInvalid     Code = "CS_SIGNATURE_INVALID"
+	CSSignatureKeyNotFound Code = "CS_SIGNATURE_KEY_NOT_FOUND"
 )
 
 type CSError struct {
@@ -173,6 +177,10 @@ func StatusCode(code Code) int {
 		return http.StatusNotFound // 404
 	case CSEgressDenied:
 		return http.StatusForbidden // 403
+	case CSSignatureMissing, CSSignatureInvalid:
+		return http.StatusBadRequest // 400
+	case CSSignatureKeyNotFound:
+		return http.StatusNotFound // 404
 	}
 	switch {
 	case strings.HasPrefix(string(code), "CS_AUTHN_"):
