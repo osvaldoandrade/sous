@@ -26,6 +26,11 @@ func validConfigForTests() Config {
 	cfg.Plugins.Messaging.CodeQ.Topics.Invoke = "cs.invoke"
 	cfg.Plugins.Messaging.CodeQ.Topics.Results = "cs.results"
 
+	// E6.01: secrets driver defaults to the in-memory provider, which
+	// matches the syncPluginConfig fallback. Validate() requires a
+	// non-empty driver so test fixtures must opt into one explicitly.
+	cfg.Plugins.Secrets.Driver = "memory"
+
 	cfg.CSControl.HTTP.Addr = ":8080"
 	cfg.CSHTTPGateway.HTTP.Addr = ":8081"
 	cfg.CSInvokerPool.HTTP.Addr = ":8082"

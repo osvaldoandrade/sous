@@ -39,14 +39,55 @@ The invoker denies a call that violates a capability.
 
 The platform does not inject secrets by default.
 
-A version may reference secrets by name:
+A function version references secrets by **name** in
+`VersionConfig.Secrets`. Three forms are accepted:
 
-- `secrets: ["kv:tenant/payments/stripe_key"]`
+- `"STRIPE_KEY"` — the lookup path matches the env var name.
+- `"STRIPE_KEY=payments/stripe_key"` — `STRIPE_KEY` is the env var the
+  function sees through `cs.env.get("STRIPE_KEY")`, `payments/stripe_key`
+  is the provider-specific lookup path.
+- `"TIER=payments/multi#json-field:tier"` — the provider returns a JSON
+  document and the invoker exposes the `tier` field as a string.
 
-The invoker resolves secrets through a secret provider.
-In v0.1 the secret provider reads from KVRocks.
+### Provider model
 
-The invoker redacts secrets from logs.
+`plugins.secrets.driver` selects the provider implementation:
+
+| Driver  | Backend                              | Auth                                  |
+|---------|--------------------------------------|---------------------------------------|
+| memory  | In-process seed map (dev + tests)    | n/a                                   |
+| vault   | HashiCorp Vault KV v2                | static token (env var `VAULT_TOKEN`)  |
+
+Each driver registers itself with `internal/plugins/registry` at init
+time, mirroring the `authn`, `persistence`, and `messaging` plugin
+points. New drivers (AWS Secrets Manager, GCP Secret Manager) plug in
+the same way without touching the invoker.
+
+### Injection contract
+
+The `cs-invoker-pool` resolves the configured `VersionConfig.Secrets`
+list at activation start, **after** bundle SHA verification and
+**before** user code runs. The resolved `{name: value}` map is stamped
+onto the runtime context via `runtime.WithEnv` and exposed to JS code
+through two host bindings:
+
+- `cs.env.get(name)` — returns the string value or `null` when the
+  name is not configured.
+- `cs.env.list()` — returns the declared **names** only; values never
+  appear in the output so a misbehaving function cannot dump the entire
+  secret set into a log line by accident.
+
+Secret material:
+
+- never lands in the bundle (the publisher only stores names),
+- never lands in KVRocks (the persistence plugin is bypassed entirely),
+- never lands in `cs.results` or DLQ envelopes,
+- is not appended to activation logs by the runtime.
+
+When a referenced secret is missing the activation fails with
+`CS_SECRET_NOT_FOUND` (HTTP 404) before any code executes; when the
+provider is unreachable the activation fails with `CS_SECRET_UNAVAILABLE`
+(HTTP 503) so the gateway / scheduler can retry against another replica.
 
 ## Network egress
 

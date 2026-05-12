@@ -81,6 +81,21 @@ const (
 	// internal/cadence/determinism and docs/12-cadence-integration.md
 	// "Determinism rules" (roadmap task E8.03).
 	CSWorkflowNonDeterministic Code = "CS_WORKFLOW_NON_DETERMINISTIC"
+	// CSSecretNotFound is surfaced by the cs-invoker-pool secret
+	// provider chain (E6.01) when a VersionConfig.Secrets entry resolves
+	// to a path that does not exist in the configured external vault.
+	// The activation fails before user code runs so the function never
+	// observes a half-injected env. Carries HTTP 404 semantics: the
+	// reference is well-formed but the backing material is missing.
+	// See internal/plugins/secrets and docs/15-security.md "Secrets".
+	CSSecretNotFound Code = "CS_SECRET_NOT_FOUND"
+	// CSSecretUnavailable indicates the secret provider could not be
+	// reached or rejected the request (transport error, auth failure,
+	// 5xx from the vault). Distinct from CSSecretNotFound so a probe
+	// can tell "vault is down" from "secret is missing". Carries HTTP
+	// 503 semantics so the gateway / scheduler can retry the activation
+	// against a healthier replica.
+	CSSecretUnavailable Code = "CS_SECRET_UNAVAILABLE"
 )
 
 type CSError struct {
@@ -145,6 +160,8 @@ func StatusCode(code Code) int {
 		return http.StatusUnprocessableEntity // 422
 	case CSWorkflowNonDeterministic:
 		return http.StatusUnprocessableEntity // 422
+	case CSSecretNotFound:
+		return http.StatusNotFound // 404
 	}
 	switch {
 	case strings.HasPrefix(string(code), "CS_AUTHN_"):

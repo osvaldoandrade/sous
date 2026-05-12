@@ -203,6 +203,9 @@ func (r *Runner) runJS(ctx context.Context, code []byte, manifest api.FunctionMa
 	if err := r.bindCadence(rt, csObj, request); err != nil {
 		return nil, err
 	}
+	if err := r.bindEnv(ctx, rt, csObj); err != nil {
+		return nil, err
+	}
 	if err := rt.Set("cs", csObj); err != nil {
 		return nil, err
 	}
@@ -604,6 +607,42 @@ func (r *Runner) bindCadence(rt *goja.Runtime, csObj *goja.Object, req api.Invoc
 		return err
 	}
 	return csObj.Set("cadence", cad)
+}
+
+// bindEnv exposes the per-activation secret env to user code as
+// cs.env.get(name). The map is populated by cs-invoker-pool from the
+// configured external secret provider (E6.01) and stamped onto the
+// context via runtime.WithEnv. Missing names return null so a function
+// can distinguish "unconfigured" from an empty-string value, and
+// cs.env.list() returns the declared names (not the values) so a
+// function can introspect without leaking material into a result.
+func (r *Runner) bindEnv(ctx context.Context, rt *goja.Runtime, csObj *goja.Object) error {
+	env := EnvFromContext(ctx)
+	envObj := rt.NewObject()
+	if err := envObj.Set("get", func(call goja.FunctionCall) goja.Value {
+		name := call.Argument(0).String()
+		if name == "" {
+			return goja.Null()
+		}
+		v, ok := env[name]
+		if !ok {
+			return goja.Null()
+		}
+		return rt.ToValue(v)
+	}); err != nil {
+		return err
+	}
+	if err := envObj.Set("list", func(call goja.FunctionCall) goja.Value {
+		names := make([]string, 0, len(env))
+		for k := range env {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		return rt.ToValue(names)
+	}); err != nil {
+		return err
+	}
+	return csObj.Set("env", envObj)
 }
 
 func transformESModule(src string) string {
