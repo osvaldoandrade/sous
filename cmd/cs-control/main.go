@@ -22,6 +22,7 @@ import (
 	"github.com/osvaldoandrade/sous/internal/audit"
 	"github.com/osvaldoandrade/sous/internal/authz"
 	"github.com/osvaldoandrade/sous/internal/bundle"
+	"github.com/osvaldoandrade/sous/internal/cadence/determinism"
 	"github.com/osvaldoandrade/sous/internal/config"
 	cserrors "github.com/osvaldoandrade/sous/internal/errors"
 	"github.com/osvaldoandrade/sous/internal/kv"
@@ -421,6 +422,24 @@ func (s *server) publishVersion(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		cserrors.WriteHTTP(w, cserrors.New(cserrors.CSValidationManifest, err.Error()), requestID(r))
 		return
+	}
+
+	// E8.03: publish-time static determinism linter for Cadence
+	// workflows. When the manifest declares cadence.kind == "workflow"
+	// the runtime will replay the function against its history on every
+	// Decision, so any call to Date.now / Math.random / setTimeout /
+	// bare fetch / etc. corrupts replay state. We scan function.js plus
+	// any deps/*.js and reject the publish with
+	// CS_WORKFLOW_NON_DETERMINISTIC + violations[] so the publishing
+	// agent gets actionable feedback before the bad code reaches
+	// production. Activity-kind functions (the default) skip this hook
+	// because they only run forward and may freely call nondeterministic
+	// APIs. See docs/12-cadence-integration.md "Determinism rules".
+	if manifest.Cadence != nil && manifest.Cadence.Kind == api.CadenceKindWorkflow {
+		if violations := determinism.ScanWorkflow(decoded); len(violations) > 0 {
+			writeDeterminismViolations(w, violations, requestID(r))
+			return
+		}
 	}
 
 	// E5.01: resolve declared imports into a frozen deps/ subtree and a
@@ -1056,4 +1075,22 @@ func fmtErr(err error) string {
 
 func debugf(format string, args ...any) string {
 	return fmt.Sprintf(format, args...)
+}
+
+// writeDeterminismViolations emits the structured 422 response the
+// publish-time determinism linter returns when a workflow bundle has at
+// least one banned-API call site. The body extends the standard error
+// envelope with a `violations[]` array so the publishing agent (cs CLI
+// or any other client) can render a per-call-site diagnostic without
+// re-parsing the message string. See docs/12-cadence-integration.md
+// "Determinism rules" and roadmap task E8.03.
+func writeDeterminismViolations(w http.ResponseWriter, violations []determinism.Violation, reqID string) {
+	api.WriteJSON(w, cserrors.StatusCode(cserrors.CSWorkflowNonDeterministic), map[string]any{
+		"error": map[string]any{
+			"code":       cserrors.CSWorkflowNonDeterministic,
+			"message":    fmt.Sprintf("workflow function contains %d nondeterministic call(s); see violations[]", len(violations)),
+			"request_id": reqID,
+			"violations": violations,
+		},
+	})
 }

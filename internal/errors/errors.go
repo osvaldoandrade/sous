@@ -72,6 +72,15 @@ const (
 	// the runtime refuses any specifier the publisher did not declare.
 	// Carries HTTP 422 (Unprocessable Entity) semantics.
 	CSImportNotFound Code = "CS_IMPORT_NOT_FOUND"
+	// CSWorkflowNonDeterministic is returned when cs-control runs the
+	// publish-time static determinism linter against a workflow-kind
+	// function and detects banned-API usage (Date.now, Math.random,
+	// setTimeout, etc.). The error body carries a structured
+	// violations[] list so the publishing agent can fix each call site.
+	// Carries HTTP 422 (Unprocessable Entity) semantics. See
+	// internal/cadence/determinism and docs/12-cadence-integration.md
+	// "Determinism rules" (roadmap task E8.03).
+	CSWorkflowNonDeterministic Code = "CS_WORKFLOW_NON_DETERMINISTIC"
 )
 
 type CSError struct {
@@ -133,6 +142,8 @@ func StatusCode(code Code) int {
 	case CSRetryExhausted:
 		return http.StatusBadGateway // 502
 	case CSImportNotFound:
+		return http.StatusUnprocessableEntity // 422
+	case CSWorkflowNonDeterministic:
 		return http.StatusUnprocessableEntity // 422
 	}
 	switch {

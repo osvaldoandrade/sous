@@ -195,6 +195,14 @@ type FunctionManifest struct {
 	// dependencies and behaves exactly like a v0.1 single-file function.
 	// See docs/08-runtime-cs-js.md and roadmap task E5.01.
 	Imports map[string]ManifestImport `json:"imports,omitempty"`
+	// Cadence is the optional Cadence-aware section of the manifest. When
+	// nil the function defaults to Cadence Activity semantics (the v0.1
+	// behaviour). When Cadence.Kind == "workflow" the control plane runs
+	// the publish-time static determinism linter from
+	// internal/cadence/determinism and rejects any banned API usage with
+	// CS_WORKFLOW_NON_DETERMINISTIC. See docs/12-cadence-integration.md
+	// "Determinism rules" and roadmap task E8.03.
+	Cadence *CadenceConfig `json:"cadence,omitempty"`
 }
 
 type VersionAuthz struct {
