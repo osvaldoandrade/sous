@@ -1,0 +1,143 @@
+# code-sous Service Level Objectives
+#
+# This file is the declarative source of truth for the platform's SLOs.
+# Operators load it (or the rendered alert rules) into Prometheus to drive
+# burn-rate alerting and error-budget dashboards.
+#
+# Targets are pinned in docs/02-requirements.md ("Availability targets").
+# Default HTTP invoke timeout is 3000 ms (docs/02-requirements.md, "Timeouts"),
+# which determines the data-plane latency SLO threshold below.
+#
+# Metric names match docs/14-observability.md and are emitted by the services
+# listed in `owner_service`. SLO rules MUST NOT invent metric names; if a
+# referenced metric does not yet exist as an exported Prometheus series,
+# treat that gap as a follow-up and disable the dependent rule until the
+# emitter is wired up.
+
+apiVersion: sous.codecompany.com.br/v1
+kind: SLOSet
+metadata:
+  name: code-sous-platform
+  description: Platform-level SLOs for the code-sous control and data planes.
+  owner: platform-sre
+  source_of_truth: docs/02-requirements.md
+spec:
+  # Default reporting / error-budget window for every SLO below.
+  default_window: 30d
+  # Recommended Prometheus evaluation_interval for the alert rules; shorter
+  # intervals reduce alert latency but increase rule evaluation cost.
+  evaluation_interval: 30s
+
+  slos:
+    - name: control_plane_availability
+      tier: control-plane
+      objective: 99.9
+      window: 30d
+      owner_service: cs-control
+      description: >-
+        Fraction of control-plane API requests that do NOT return a 5xx
+        response. Driven by the 99.9% monthly availability target for the
+        control plane in docs/02-requirements.md.
+      sli:
+        type: ratio
+        # Successful requests = anything that is NOT a 5xx (4xx is a client
+        # error, not an availability burn).
+        good: 'sum(rate(cs_api_requests_total{status!~"5.."}[5m]))'
+        total: 'sum(rate(cs_api_requests_total[5m]))'
+        # Minimum traffic floor to avoid alerting on idle clusters; tune per
+        # deployment. Below this RPS the SLI evaluates to "no burn".
+        min_traffic_rps: 0.05
+      labels:
+        severity_page: critical
+        severity_ticket: warning
+      runbook: https://runbooks.example/slo-control-plane-availability
+      exclusions:
+        - planned_maintenance
+        - tenant_throttled_429  # 429 is not in the 5xx class, listed for clarity.
+
+    - name: data_plane_availability
+      tier: data-plane
+      objective: 99.9
+      window: 30d
+      owner_service: cs-invoker-pool
+      description: >-
+        Fraction of data-plane invocations that complete with status="success".
+        Covers HTTP, codeQ, schedule, and Cadence triggers uniformly because
+        all triggers share the cs-invoker-pool execution engine
+        (docs/02-requirements.md, "Uniform execution fabric").
+      sli:
+        type: ratio
+        good: 'sum(rate(cs_invocations_total{status="success"}[5m]))'
+        total: 'sum(rate(cs_invocations_total[5m]))'
+        min_traffic_rps: 0.05
+      labels:
+        severity_page: critical
+        severity_ticket: warning
+      runbook: https://runbooks.example/slo-data-plane-availability
+      exclusions:
+        - planned_maintenance
+        - user_function_runtime_errors  # user code faults are not platform burn; see runbook for partitioning.
+
+    - name: data_plane_latency_http
+      tier: data-plane
+      objective: 99.0
+      window: 30d
+      owner_service: cs-http-gateway
+      description: >-
+        99% of synchronous HTTP invocations complete below the default invoke
+        timeout (3000 ms) reported in docs/02-requirements.md. Latency burn
+        is measured against the histogram bucket boundary at 3000 ms.
+      sli:
+        type: latency
+        latency_threshold_ms: 3000
+        # "good" = requests faster than 3000 ms, drawn from the cumulative
+        # histogram bucket at le="3000". "total" = the +Inf bucket.
+        good: 'sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="3000"}[5m]))'
+        total: 'sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="+Inf"}[5m]))'
+        min_traffic_rps: 0.05
+      labels:
+        severity_page: critical
+        severity_ticket: warning
+      runbook: https://runbooks.example/slo-data-plane-latency-http
+      exclusions:
+        - planned_maintenance
+
+  # Multi-window multi-burn-rate (MWMBR) tiers applied to each SLO above.
+  # Numbers come from the Google SRE Workbook, Chapter 5 ("Alerting on SLOs").
+  # The error-budget burn rate is `(1 - SLI) / (1 - objective)`.
+  burn_rate_tiers:
+    - id: page_fast
+      severity: critical
+      action: page
+      long_window: 1h
+      burn_rate: 14.4
+      # Alert fires after ~2 minutes; budget exhausted in ~2 days at this rate.
+    - id: page_slow
+      severity: critical
+      action: page
+      long_window: 6h
+      burn_rate: 6
+      # Alert fires after ~15 minutes; budget exhausted in ~5 days at this rate.
+    - id: ticket_fast
+      severity: warning
+      action: ticket
+      long_window: 24h
+      burn_rate: 3
+      # Alert fires after ~1 hour; budget exhausted in ~10 days at this rate.
+    - id: ticket_slow
+      severity: warning
+      action: ticket
+      long_window: 3d
+      burn_rate: 1
+      # Alert fires after ~3 hours; budget exhausted exactly at the window end.
+
+  # Documented carve-outs that operators apply at the recording-rule layer.
+  # Templates do NOT subtract these automatically; see the runbook for the
+  # canonical exclusion query snippets.
+  exclusions:
+    - id: planned_maintenance
+      description: Requests during announced maintenance windows do not consume budget.
+    - id: tenant_throttled_429
+      description: 429 responses caused by per-tenant quota are by-design and excluded.
+    - id: user_function_runtime_errors
+      description: User-code exceptions surface as status="error" but reflect user fault, not platform availability. See runbook for the per-tenant split.

@@ -1,0 +1,444 @@
+# code-sous Prometheus burn-rate alert rules.
+#
+# This file is a hand-written template (not auto-generated) that mirrors
+# the SLO definitions in deploy/observability/slo.yaml. Each SLO has two
+# PAGE alerts (fast/slow) and two TICKET alerts (fast/slow), following the
+# multi-window multi-burn-rate pattern from the Google SRE Workbook.
+#
+# Page  pair: 1h burn x 14.4 OR 6h burn x 6
+# Ticket pair: 24h burn x 3   OR 3d burn x 1
+#
+# Each rule pairs the long-window burn rate with a short-window burn rate
+# (5m, 30m, 2h, 6h respectively) so the alert ignores stale burn spikes that
+# have already recovered.
+#
+# To load:
+#   1. Copy this file to your Prometheus rules directory.
+#   2. Reference it from prometheus.yml under rule_files.
+#   3. Validate with: promtool check rules deploy/observability/alerts.rules.yaml
+#
+# See docs/14-observability.md for the SLO/alert tier semantics and
+# deploy/observability/README.md for the loading procedure.
+
+groups:
+  - name: cs_slo_control_plane_availability
+    interval: 30s
+    rules:
+      # ----- PAGE alerts -----
+      - alert: CSControlPlaneAvailabilityBurnFast
+        expr: |
+          (
+            (
+              1 - (
+                sum(rate(cs_api_requests_total{status!~"5.."}[1h]))
+                /
+                sum(rate(cs_api_requests_total[1h]))
+              )
+            ) > (14.4 * (1 - 0.999))
+            and
+            (
+              1 - (
+                sum(rate(cs_api_requests_total{status!~"5.."}[5m]))
+                /
+                sum(rate(cs_api_requests_total[5m]))
+              )
+            ) > (14.4 * (1 - 0.999))
+          )
+        for: 2m
+        labels:
+          severity: critical
+          slo: control_plane_availability
+          service: cs-control
+          tier: control-plane
+          runbook: https://runbooks.example/slo-control-plane-availability
+        annotations:
+          summary: "Control-plane availability burning error budget 14.4x (fast page)"
+          description: |
+            Control-plane error rate over the last 1h and 5m windows exceeds
+            14.4x the 99.9% / 30d budget. At this burn rate the monthly
+            error budget is consumed in ~2 days.
+          runbook_url: https://runbooks.example/slo-control-plane-availability
+
+      - alert: CSControlPlaneAvailabilityBurnSlow
+        expr: |
+          (
+            (
+              1 - (
+                sum(rate(cs_api_requests_total{status!~"5.."}[6h]))
+                /
+                sum(rate(cs_api_requests_total[6h]))
+              )
+            ) > (6 * (1 - 0.999))
+            and
+            (
+              1 - (
+                sum(rate(cs_api_requests_total{status!~"5.."}[30m]))
+                /
+                sum(rate(cs_api_requests_total[30m]))
+              )
+            ) > (6 * (1 - 0.999))
+          )
+        for: 15m
+        labels:
+          severity: critical
+          slo: control_plane_availability
+          service: cs-control
+          tier: control-plane
+          runbook: https://runbooks.example/slo-control-plane-availability
+        annotations:
+          summary: "Control-plane availability burning error budget 6x (slow page)"
+          description: |
+            Control-plane error rate over the last 6h and 30m windows exceeds
+            6x the 99.9% / 30d budget. At this burn rate the monthly error
+            budget is consumed in ~5 days.
+          runbook_url: https://runbooks.example/slo-control-plane-availability
+
+      # ----- TICKET alerts -----
+      - alert: CSControlPlaneAvailabilityBurnTicketFast
+        expr: |
+          (
+            (
+              1 - (
+                sum(rate(cs_api_requests_total{status!~"5.."}[24h]))
+                /
+                sum(rate(cs_api_requests_total[24h]))
+              )
+            ) > (3 * (1 - 0.999))
+            and
+            (
+              1 - (
+                sum(rate(cs_api_requests_total{status!~"5.."}[2h]))
+                /
+                sum(rate(cs_api_requests_total[2h]))
+              )
+            ) > (3 * (1 - 0.999))
+          )
+        for: 1h
+        labels:
+          severity: warning
+          slo: control_plane_availability
+          service: cs-control
+          tier: control-plane
+          runbook: https://runbooks.example/slo-control-plane-availability
+        annotations:
+          summary: "Control-plane availability burning error budget 3x (ticket)"
+          description: |
+            Control-plane error rate over the last 24h and 2h windows exceeds
+            3x the 99.9% / 30d budget. At this rate the monthly budget is
+            consumed in ~10 days. File a ticket and investigate during business hours.
+          runbook_url: https://runbooks.example/slo-control-plane-availability
+
+      - alert: CSControlPlaneAvailabilityBurnTicketSlow
+        expr: |
+          (
+            (
+              1 - (
+                sum(rate(cs_api_requests_total{status!~"5.."}[3d]))
+                /
+                sum(rate(cs_api_requests_total[3d]))
+              )
+            ) > (1 * (1 - 0.999))
+            and
+            (
+              1 - (
+                sum(rate(cs_api_requests_total{status!~"5.."}[6h]))
+                /
+                sum(rate(cs_api_requests_total[6h]))
+              )
+            ) > (1 * (1 - 0.999))
+          )
+        for: 3h
+        labels:
+          severity: warning
+          slo: control_plane_availability
+          service: cs-control
+          tier: control-plane
+          runbook: https://runbooks.example/slo-control-plane-availability
+        annotations:
+          summary: "Control-plane availability slowly exhausting error budget (ticket)"
+          description: |
+            Control-plane error rate over the last 3d and 6h windows exceeds
+            1x the 99.9% / 30d budget. At this rate the monthly budget is
+            exhausted exactly at the window end.
+          runbook_url: https://runbooks.example/slo-control-plane-availability
+
+  - name: cs_slo_data_plane_availability
+    interval: 30s
+    rules:
+      - alert: CSDataPlaneAvailabilityBurnFast
+        expr: |
+          (
+            (
+              1 - (
+                sum(rate(cs_invocations_total{status="success"}[1h]))
+                /
+                sum(rate(cs_invocations_total[1h]))
+              )
+            ) > (14.4 * (1 - 0.999))
+            and
+            (
+              1 - (
+                sum(rate(cs_invocations_total{status="success"}[5m]))
+                /
+                sum(rate(cs_invocations_total[5m]))
+              )
+            ) > (14.4 * (1 - 0.999))
+          )
+        for: 2m
+        labels:
+          severity: critical
+          slo: data_plane_availability
+          service: cs-invoker-pool
+          tier: data-plane
+          runbook: https://runbooks.example/slo-data-plane-availability
+        annotations:
+          summary: "Data-plane invocation success rate burning 14.4x (fast page)"
+          description: |
+            Data-plane invocation failure rate over the last 1h and 5m windows
+            exceeds 14.4x the 99.9% / 30d budget. Monthly budget will be
+            consumed in ~2 days at this rate.
+          runbook_url: https://runbooks.example/slo-data-plane-availability
+
+      - alert: CSDataPlaneAvailabilityBurnSlow
+        expr: |
+          (
+            (
+              1 - (
+                sum(rate(cs_invocations_total{status="success"}[6h]))
+                /
+                sum(rate(cs_invocations_total[6h]))
+              )
+            ) > (6 * (1 - 0.999))
+            and
+            (
+              1 - (
+                sum(rate(cs_invocations_total{status="success"}[30m]))
+                /
+                sum(rate(cs_invocations_total[30m]))
+              )
+            ) > (6 * (1 - 0.999))
+          )
+        for: 15m
+        labels:
+          severity: critical
+          slo: data_plane_availability
+          service: cs-invoker-pool
+          tier: data-plane
+          runbook: https://runbooks.example/slo-data-plane-availability
+        annotations:
+          summary: "Data-plane invocation success rate burning 6x (slow page)"
+          description: |
+            Data-plane invocation failure rate over the last 6h and 30m windows
+            exceeds 6x the 99.9% / 30d budget. Monthly budget will be consumed
+            in ~5 days at this rate.
+          runbook_url: https://runbooks.example/slo-data-plane-availability
+
+      - alert: CSDataPlaneAvailabilityBurnTicketFast
+        expr: |
+          (
+            (
+              1 - (
+                sum(rate(cs_invocations_total{status="success"}[24h]))
+                /
+                sum(rate(cs_invocations_total[24h]))
+              )
+            ) > (3 * (1 - 0.999))
+            and
+            (
+              1 - (
+                sum(rate(cs_invocations_total{status="success"}[2h]))
+                /
+                sum(rate(cs_invocations_total[2h]))
+              )
+            ) > (3 * (1 - 0.999))
+          )
+        for: 1h
+        labels:
+          severity: warning
+          slo: data_plane_availability
+          service: cs-invoker-pool
+          tier: data-plane
+          runbook: https://runbooks.example/slo-data-plane-availability
+        annotations:
+          summary: "Data-plane invocation success rate burning 3x (ticket)"
+          description: |
+            Data-plane invocation failure rate over the last 24h and 2h windows
+            exceeds 3x the 99.9% / 30d budget. Monthly budget will be consumed
+            in ~10 days at this rate.
+          runbook_url: https://runbooks.example/slo-data-plane-availability
+
+      - alert: CSDataPlaneAvailabilityBurnTicketSlow
+        expr: |
+          (
+            (
+              1 - (
+                sum(rate(cs_invocations_total{status="success"}[3d]))
+                /
+                sum(rate(cs_invocations_total[3d]))
+              )
+            ) > (1 * (1 - 0.999))
+            and
+            (
+              1 - (
+                sum(rate(cs_invocations_total{status="success"}[6h]))
+                /
+                sum(rate(cs_invocations_total[6h]))
+              )
+            ) > (1 * (1 - 0.999))
+          )
+        for: 3h
+        labels:
+          severity: warning
+          slo: data_plane_availability
+          service: cs-invoker-pool
+          tier: data-plane
+          runbook: https://runbooks.example/slo-data-plane-availability
+        annotations:
+          summary: "Data-plane invocation success rate slowly exhausting budget (ticket)"
+          description: |
+            Data-plane invocation failure rate over the last 3d and 6h windows
+            exceeds 1x the 99.9% / 30d budget. Monthly budget exhausted at the
+            window end at this rate.
+          runbook_url: https://runbooks.example/slo-data-plane-availability
+
+  - name: cs_slo_data_plane_latency_http
+    interval: 30s
+    rules:
+      # Latency SLI is the fraction of HTTP invocations below the 3000 ms
+      # default invoke timeout (docs/02-requirements.md). The "bad" fraction
+      # is (total - good), expressed via the +Inf bucket and the le="3000" bucket.
+      - alert: CSDataPlaneLatencyBurnFast
+        expr: |
+          (
+            (
+              1 - (
+                sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="3000"}[1h]))
+                /
+                sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="+Inf"}[1h]))
+              )
+            ) > (14.4 * (1 - 0.99))
+            and
+            (
+              1 - (
+                sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="3000"}[5m]))
+                /
+                sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="+Inf"}[5m]))
+              )
+            ) > (14.4 * (1 - 0.99))
+          )
+        for: 2m
+        labels:
+          severity: critical
+          slo: data_plane_latency_http
+          service: cs-http-gateway
+          tier: data-plane
+          runbook: https://runbooks.example/slo-data-plane-latency-http
+        annotations:
+          summary: "HTTP invoke latency burning 14.4x (fast page)"
+          description: |
+            Fraction of HTTP invocations exceeding the 3000 ms timeout over
+            the last 1h and 5m windows is burning the 99% / 30d latency
+            budget at 14.4x. Monthly budget consumed in ~2 days at this rate.
+          runbook_url: https://runbooks.example/slo-data-plane-latency-http
+
+      - alert: CSDataPlaneLatencyBurnSlow
+        expr: |
+          (
+            (
+              1 - (
+                sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="3000"}[6h]))
+                /
+                sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="+Inf"}[6h]))
+              )
+            ) > (6 * (1 - 0.99))
+            and
+            (
+              1 - (
+                sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="3000"}[30m]))
+                /
+                sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="+Inf"}[30m]))
+              )
+            ) > (6 * (1 - 0.99))
+          )
+        for: 15m
+        labels:
+          severity: critical
+          slo: data_plane_latency_http
+          service: cs-http-gateway
+          tier: data-plane
+          runbook: https://runbooks.example/slo-data-plane-latency-http
+        annotations:
+          summary: "HTTP invoke latency burning 6x (slow page)"
+          description: |
+            Fraction of HTTP invocations exceeding the 3000 ms timeout over
+            the last 6h and 30m windows is burning the 99% / 30d latency
+            budget at 6x. Monthly budget consumed in ~5 days at this rate.
+          runbook_url: https://runbooks.example/slo-data-plane-latency-http
+
+      - alert: CSDataPlaneLatencyBurnTicketFast
+        expr: |
+          (
+            (
+              1 - (
+                sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="3000"}[24h]))
+                /
+                sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="+Inf"}[24h]))
+              )
+            ) > (3 * (1 - 0.99))
+            and
+            (
+              1 - (
+                sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="3000"}[2h]))
+                /
+                sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="+Inf"}[2h]))
+              )
+            ) > (3 * (1 - 0.99))
+          )
+        for: 1h
+        labels:
+          severity: warning
+          slo: data_plane_latency_http
+          service: cs-http-gateway
+          tier: data-plane
+          runbook: https://runbooks.example/slo-data-plane-latency-http
+        annotations:
+          summary: "HTTP invoke latency burning 3x (ticket)"
+          description: |
+            Fraction of HTTP invocations exceeding the 3000 ms timeout over
+            the last 24h and 2h windows is burning the 99% / 30d latency
+            budget at 3x. Monthly budget consumed in ~10 days at this rate.
+          runbook_url: https://runbooks.example/slo-data-plane-latency-http
+
+      - alert: CSDataPlaneLatencyBurnTicketSlow
+        expr: |
+          (
+            (
+              1 - (
+                sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="3000"}[3d]))
+                /
+                sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="+Inf"}[3d]))
+              )
+            ) > (1 * (1 - 0.99))
+            and
+            (
+              1 - (
+                sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="3000"}[6h]))
+                /
+                sum(rate(cs_invocation_duration_ms_bucket{trigger="http",le="+Inf"}[6h]))
+              )
+            ) > (1 * (1 - 0.99))
+          )
+        for: 3h
+        labels:
+          severity: warning
+          slo: data_plane_latency_http
+          service: cs-http-gateway
+          tier: data-plane
+          runbook: https://runbooks.example/slo-data-plane-latency-http
+        annotations:
+          summary: "HTTP invoke latency slowly exhausting budget (ticket)"
+          description: |
+            Fraction of HTTP invocations exceeding the 3000 ms timeout over
+            the last 3d and 6h windows is burning the 99% / 30d latency
+            budget at 1x. Monthly budget exhausted at the window end at this rate.
+          runbook_url: https://runbooks.example/slo-data-plane-latency-http
