@@ -152,6 +152,28 @@ type ManifestCapabilities struct {
 	HTTP  ManifestHTTPCaps  `json:"http"`
 }
 
+// ManifestImport declares a single JavaScript dependency that the publisher
+// wants frozen into the bundle. Exactly one of URL or Path must be set:
+//
+//   - URL: an http(s) URL pointing at a curated mirror. The control plane
+//     fetches the bytes at publish time, verifies them, and freezes them
+//     into the bundle under deps/. The host must appear in the configured
+//     allowlist (see publish.imports.allowed_mirrors in
+//     docs/20-config-reference.md).
+//   - Path: a path inside the uploaded bundle (e.g. "lib/zod.js"). The
+//     control plane copies the bytes into deps/ unchanged.
+//
+// Integrity is optional but, when present, must be a SubResource Integrity
+// hash of the form "sha256-<base64>" or "sha384-<base64>". When the
+// publisher omits Integrity the control plane fills it in from the bytes
+// it actually fetched and freezes the result. The runtime never trusts a
+// remote fetch at invoke time — only the frozen import map is consulted.
+type ManifestImport struct {
+	URL       string `json:"url,omitempty"`
+	Path      string `json:"path,omitempty"`
+	Integrity string `json:"integrity,omitempty"`
+}
+
 type FunctionManifest struct {
 	Schema       string               `json:"schema"`
 	Runtime      string               `json:"runtime"`
@@ -165,6 +187,14 @@ type FunctionManifest struct {
 	// Appended at the bottom of the struct so existing v1 manifests that
 	// lack the field round-trip with byte-identical JSON encoding.
 	RuntimeVersion string `json:"runtimeVersion,omitempty"`
+	// Imports is the publisher-declared JS dependency map: bare specifier
+	// → ManifestImport. Resolution runs once in cs-control at publish
+	// time and is frozen into the bundle; the cs-js runtime resolves
+	// import statements against the frozen copy with zero network egress.
+	// An optional field — when nil or empty the bundle has no
+	// dependencies and behaves exactly like a v0.1 single-file function.
+	// See docs/08-runtime-cs-js.md and roadmap task E5.01.
+	Imports map[string]ManifestImport `json:"imports,omitempty"`
 }
 
 type VersionAuthz struct {
@@ -488,6 +518,30 @@ func (m FunctionManifest) Validate() error {
 	}
 	if m.Capabilities.HTTP.TimeoutMS < 1 || m.Capabilities.HTTP.TimeoutMS > 30000 {
 		return fmt.Errorf("http timeoutMs out of range")
+	}
+	// Imports validation. Optional; when present, each entry must declare
+	// exactly one source (url or path) and the specifier must be non-empty.
+	// Integrity, when set, must use an algorithm prefix we support.
+	if len(m.Imports) > 128 {
+		return fmt.Errorf("imports exceed limit")
+	}
+	for spec, imp := range m.Imports {
+		if strings.TrimSpace(spec) == "" {
+			return fmt.Errorf("imports specifier is empty")
+		}
+		if len(spec) > 256 {
+			return fmt.Errorf("imports specifier too long")
+		}
+		hasURL := strings.TrimSpace(imp.URL) != ""
+		hasPath := strings.TrimSpace(imp.Path) != ""
+		if hasURL == hasPath {
+			return fmt.Errorf("imports[%q]: exactly one of url or path is required", spec)
+		}
+		if imp.Integrity != "" {
+			if !strings.HasPrefix(imp.Integrity, "sha256-") && !strings.HasPrefix(imp.Integrity, "sha384-") {
+				return fmt.Errorf("imports[%q]: integrity must use sha256-/sha384- prefix", spec)
+			}
+		}
 	}
 	return nil
 }

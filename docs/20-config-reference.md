@@ -72,6 +72,21 @@ cs_control:
   subscriptions:
     worker_pool_default: 4   # default max_concurrency for unordered bindings
     refresh_seconds: 10      # reconciliation interval for the consumer set
+  publish:
+    # E5.01: frozen-import-map resolver. The allowlist is empty by
+    # default so no remote fetch is permitted out of the box; only
+    # local-path imports (bytes already in the uploaded bundle)
+    # resolve. Each entry is a hostname (no scheme, no port) matched
+    # case-insensitively against the URL the publisher declares in
+    # manifest.imports[*].url. See docs/08-runtime-cs-js.md and
+    # docs/15-security.md.
+    imports:
+      allowed_mirrors: []
+      # Per-import byte ceiling. Defaults to 4 MiB. The 16 MiB
+      # max_bundle_bytes still caps the frozen bundle as a whole.
+      max_bytes_per_import: 4194304
+      # Per-import fetch timeout. Defaults to 10s.
+      timeout_ms: 10000
 ```
 
 `cs_control.subscriptions` configures the in-process codeQ subscription
@@ -81,6 +96,15 @@ always run a single goroutine. `refresh_seconds` controls how often
 cs-control re-reads the persisted binding set and reconciles its in-memory
 consumer map. See `docs/07-codeq-protocol.md` ("Subscription triggers") for
 the full delivery contract.
+
+`publish.imports.allowed_mirrors` controls which hostnames the
+cs-control resolver may fetch from when freezing JS dependencies at
+publish time. An empty list disables remote fetching entirely —
+`path:` imports still work. Adding `mirror.example.com` allows any
+`https://mirror.example.com/...` URL declared in a function manifest.
+Disallowed mirrors yield `CS_VALIDATION_FAILED` with an error message
+naming `allowed_mirrors`. See docs/08-runtime-cs-js.md "Imports" and
+docs/15-security.md "Curated import-map mirror allowlist".
 
 ## cs-http-gateway
 

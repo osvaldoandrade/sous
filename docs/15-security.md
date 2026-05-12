@@ -131,6 +131,39 @@ Future work tracked separately:
 - per-tenant rewriting of internal registry URLs in `source` fields
   for shared-mirror deployments.
 
+### Curated import-map mirror allowlist
+
+When a `function.js` declares `imports` (see docs/08-runtime-cs-js.md)
+and an entry references an `http(s)` URL, the resolver in cs-control
+fetches the bytes at publish time. The fetch is gated by a
+**curated-mirror allowlist** configured at
+`cs_control.publish.imports.allowed_mirrors` (see
+docs/20-config-reference.md).
+
+Rules:
+
+- The allowlist is **empty by default**. Out of the box no remote fetch
+  is permitted; only `path:` imports (bytes already in the uploaded
+  bundle) resolve.
+- Only `http` and `https` URLs are allowed. Other schemes (`file:`,
+  `ftp:`, `data:`) are rejected with `CS_VALIDATION_FAILED`.
+- The hostname of the URL is matched case-insensitively against the
+  allowlist; the port is ignored.
+- A per-import size cap
+  (`cs_control.publish.imports.max_bytes_per_import`, default 4 MiB)
+  bounds any single dep. The 16 MiB bundle cap from
+  docs/26-capacity-and-limits.md still applies to the frozen bundle as
+  a whole.
+- The publisher's optional `integrity` digest must match the bytes the
+  resolver actually fetched, otherwise publish fails. When the
+  publisher omits `integrity` the resolver computes a canonical
+  `sha256-...` and freezes it into `import-map.json` so the runtime
+  can verify on load.
+- The runtime never re-fetches. The frozen `import-map.json` is the
+  only source of truth at invoke time; a tampered bundle (bytes that
+  no longer match the frozen digest) is rejected with
+  `CS_IMPORT_NOT_FOUND` (HTTP 422).
+
 ## Rate limiting
 
 The gateway rate limits by:

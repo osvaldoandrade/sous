@@ -94,6 +94,16 @@ func (r *Runner) Execute(ctx context.Context, bundleBytes []byte, request api.In
 		out.DurationMS = time.Since(start).Milliseconds()
 		return out
 	}
+	// E5.01: load the frozen import map (if any) so the runtime can
+	// satisfy bare specifiers locally. LoadImportMap returns an empty
+	// map when import-map.json is absent — the v0.1 single-file path.
+	importMap, err := bundle.LoadImportMap(files)
+	if err != nil {
+		out.Error = &api.InvocationError{Type: "ImportMapError", Message: err.Error()}
+		out.ResolvedCode = cserrors.CSValidationManifest
+		out.DurationMS = time.Since(start).Milliseconds()
+		return out
+	}
 
 	deadline := time.UnixMilli(request.DeadlineMS)
 	if deadline.IsZero() || deadline.Before(time.Now()) {
@@ -104,7 +114,7 @@ func (r *Runner) Execute(ctx context.Context, bundleBytes []byte, request api.In
 
 	collector := &logCollector{maxBytes: r.maxLogBytes}
 
-	res, execErr := r.runJS(runCtx, files["function.js"], manifest, request, collector)
+	res, execErr := r.runJS(runCtx, files["function.js"], manifest, request, collector, importMap, files)
 	out.Logs = collector.Logs()
 	out.Truncated = collector.Truncated()
 	if execErr != nil {
@@ -115,6 +125,14 @@ func (r *Runner) Execute(ctx context.Context, bundleBytes []byte, request api.In
 			mappedCode = cserrors.CSRuntimeTimeout
 			status = "timeout"
 			errType = "Timeout"
+		}
+		// goja wraps host errors in GoError; the original CS_* code
+		// shows up inside the error message ("CS_IMPORT_NOT_FOUND: ...").
+		// Surface it as ResolvedCode so cs-invoker-pool returns the
+		// correct typed error / HTTP status.
+		if strings.Contains(execErr.Error(), string(cserrors.CSImportNotFound)) {
+			mappedCode = cserrors.CSImportNotFound
+			errType = "ImportError"
 		}
 		msg := execErr.Error()
 		if len(msg) > r.maxErrorBytes {
@@ -151,7 +169,12 @@ func (r *Runner) Execute(ctx context.Context, bundleBytes []byte, request api.In
 	return out
 }
 
-func (r *Runner) runJS(ctx context.Context, code []byte, manifest api.FunctionManifest, request api.InvocationRequest, logs *logCollector) (*api.FunctionResponse, error) {
+// runJS executes the publisher's function.js in a fresh goja isolate.
+// importMap and files come from the bundle and let bare-specifier
+// imports resolve against the frozen deps/ subtree; both are zero
+// values for bundles without imports, in which case the runtime
+// behaves exactly like the v0.1 single-file path.
+func (r *Runner) runJS(ctx context.Context, code []byte, manifest api.FunctionManifest, request api.InvocationRequest, logs *logCollector, importMap bundle.FrozenImportMap, files map[string][]byte) (*api.FunctionResponse, error) {
 	rt := goja.New()
 
 	timeout := time.Until(time.UnixMilli(request.DeadlineMS))
@@ -186,8 +209,15 @@ func (r *Runner) runJS(ctx context.Context, code []byte, manifest api.FunctionMa
 	if err := rt.Set("exports", map[string]any{}); err != nil {
 		return nil, err
 	}
+	// E5.01: wire the frozen import map so `import` statements in the
+	// publisher's function.js resolve against the bundle's deps/ subtree
+	// instead of failing to parse. bindImports is a no-op when the map
+	// is empty so v0.1 single-file bundles keep their fast path.
+	if err := bindImports(rt, importMap, files); err != nil {
+		return nil, err
+	}
 
-	compiled := transformESModule(string(code))
+	compiled := transformESModule(rewriteImportStatements(string(code)))
 	if _, err := rt.RunString(compiled); err != nil {
 		return nil, err
 	}

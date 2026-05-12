@@ -67,6 +67,16 @@ cs_control:
     # goroutine. See docs/07-codeq-protocol.md.
     worker_pool_default: 4
     refresh_seconds: 10
+  publish:
+    # E5.01: frozen-import-map resolver. The allowlist is empty by
+    # default so no remote fetching is permitted; only local-path
+    # imports resolve. Add hostnames (no scheme, no port) here to opt
+    # into a curated mirror. See docs/08-runtime-cs-js.md and
+    # docs/15-security.md.
+    imports:
+      allowed_mirrors: []
+      max_bytes_per_import: 4194304
+      timeout_ms: 10000
 
 cs_http_gateway:
   http:
