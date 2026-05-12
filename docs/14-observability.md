@@ -24,9 +24,18 @@ All services emit JSON logs with:
 The invoker captures user stdout and stderr.
 The invoker writes logs to KVRocks in chunks.
 
+The persistence layer enforces a hard per-activation cap on cumulative log
+bytes (default 1 MiB, configurable via `cs_invoker_pool.limits.max_log_bytes`).
+Writes that would exceed the cap are truncated cleanly on a UTF-8 boundary;
+the chunk index gets a trailing sentinel
+`{"truncated": true, "reason": "log_limit_exceeded", "limit_bytes": N}` and
+subsequent log writes for that activation become no-ops. See
+`docs/04-api-rest.md` for the full read contract (pagination, ndjson/SSE
+streaming, `X-CS-Truncated: logs` header).
+
 The API exposes:
 
-- `GET /v1/tenants/{tenant}/activations/{id}/logs?cursor=...`
+- `GET /v1/tenants/{tenant}/activations/{id}/logs?cursor=...&limit=...&format=ndjson|sse`
 
 ## Metrics
 

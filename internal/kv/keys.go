@@ -50,6 +50,28 @@ func LogChunkIndexKey(tenant, activationID string) string {
 	return fmt.Sprintf("cs:log:%s:%s:chunks", tenant, activationID)
 }
 
+// LogBytesKey counts cumulative log bytes written for an activation so that
+// AppendLogChunk can enforce the per-activation log cap without scanning every
+// chunk. The value is an integer-valued string updated via INCRBY.
+func LogBytesKey(tenant, activationID string) string {
+	return fmt.Sprintf("cs:log:%s:%s:bytes", tenant, activationID)
+}
+
+// LogTruncatedKey records that the per-activation log cap was hit. It is set
+// once when the truncation sentinel is appended so that read paths can surface
+// X-CS-Truncated: logs without scanning the chunk index.
+func LogTruncatedKey(tenant, activationID string) string {
+	return fmt.Sprintf("cs:log:%s:%s:truncated", tenant, activationID)
+}
+
+// ActivationTombstoneKey holds a long-lived marker (TTL >> activation TTL)
+// that lets GetActivation distinguish a key that has expired (return
+// CS_ACTIVATION_TTL_EXPIRED / 410) from one that never existed (404). The
+// value is the activation start/end timestamp; presence is what matters.
+func ActivationTombstoneKey(tenant, activationID string) string {
+	return fmt.Sprintf("cs:act:%s:%s:tomb", tenant, activationID)
+}
+
 func ScheduleMetaKey(tenant, namespace, name string) string {
 	return fmt.Sprintf("cs:schedule:%s:%s:%s:meta", tenant, namespace, name)
 }

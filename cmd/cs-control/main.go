@@ -534,8 +534,22 @@ func (s *server) getActivation(w http.ResponseWriter, r *http.Request) {
 		cserrors.WriteHTTP(w, err, requestID(r))
 		return
 	}
+	if rec.ResultTruncated {
+		// Surface the truncation flag in the response header so CLIs and
+		// dashboards can flag oversized results without having to inspect
+		// the body. See docs/04-api-rest.md "Activations" and
+		// docs/26-capacity-and-limits.md.
+		w.Header().Set("X-CS-Truncated", "result")
+	}
 	api.WriteJSON(w, http.StatusOK, rec)
 }
+
+// logsLimitFallback is the default page size for GET .../logs.
+// logsLimitMax is the per-request cap; clients beyond it must paginate via next_cursor.
+const (
+	logsLimitFallback int64 = 100
+	logsLimitMax      int64 = 500
+)
 
 func (s *server) getActivationLogs(w http.ResponseWriter, r *http.Request) {
 	_, tenant, _, _, ok := s.authorize(w, r, "cs:activation:read")
@@ -544,18 +558,127 @@ func (s *server) getActivationLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	activationID := chi.URLParam(r, "activation_id")
 	cursor := kv.ParseCursor(r.URL.Query().Get("cursor"))
-	limit := int64(100)
+	limit := logsLimitFallback
 	if raw := r.URL.Query().Get("limit"); raw != "" {
-		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil && parsed > 0 && parsed <= 500 {
+		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil && parsed > 0 && parsed <= logsLimitMax {
 			limit = parsed
 		}
 	}
+
+	// Detect whether the caller wants the ndjson streaming variant. The
+	// presence of application/x-ndjson or text/event-stream in Accept (or the
+	// equivalent ?format=ndjson|sse query knob) flips the response into a
+	// chunked stream so CLIs can tail without buffering. See
+	// docs/04-api-rest.md "Activations" for the contract.
+	streamMode := negotiateLogStream(r)
+
 	chunks, next, err := s.store.ListLogChunks(r.Context(), tenant, activationID, cursor, limit)
 	if err != nil {
 		cserrors.WriteHTTP(w, err, requestID(r))
 		return
 	}
-	api.WriteJSON(w, http.StatusOK, map[string]any{"chunks": chunks, "cursor": kv.EncodeCursor(next)})
+	truncated, _ := s.store.LogTruncated(r.Context(), tenant, activationID)
+	if truncated {
+		w.Header().Set("X-CS-Truncated", "logs")
+	}
+
+	switch streamMode {
+	case "ndjson":
+		writeLogsNDJSON(w, chunks, next, truncated)
+	case "sse":
+		writeLogsSSE(w, chunks, next, truncated)
+	default:
+		// Backwards-compatible JSON body: emit both "cursor" (the legacy
+		// field name) and "next_cursor" (the contract documented in
+		// docs/04-api-rest.md) so existing CLI callers keep working while
+		// new clients can rely on the documented name.
+		nextCursor := ""
+		if int64(len(chunks)) >= limit {
+			nextCursor = kv.EncodeCursor(next)
+		}
+		body := map[string]any{
+			"chunks":      chunks,
+			"cursor":      kv.EncodeCursor(next),
+			"next_cursor": nextCursor,
+			"truncated":   truncated,
+		}
+		api.WriteJSON(w, http.StatusOK, body)
+	}
+}
+
+// negotiateLogStream returns the streaming mode requested by the client:
+// "ndjson" for application/x-ndjson, "sse" for text/event-stream, "" for the
+// default JSON envelope. The ?format= query parameter wins over the Accept
+// header so CLIs can opt in without juggling headers.
+func negotiateLogStream(r *http.Request) string {
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format"))) {
+	case "ndjson":
+		return "ndjson"
+	case "sse":
+		return "sse"
+	}
+	accept := strings.ToLower(r.Header.Get("Accept"))
+	if strings.Contains(accept, "application/x-ndjson") {
+		return "ndjson"
+	}
+	if strings.Contains(accept, "text/event-stream") {
+		return "sse"
+	}
+	return ""
+}
+
+// writeLogsNDJSON emits one JSON object per line: each chunk first, then a
+// trailing object that carries the next cursor and truncation flag so the
+// client can stop or paginate cleanly. The response is flushed eagerly so
+// `cs activation logs --follow` can stream without buffering.
+func writeLogsNDJSON(w http.ResponseWriter, chunks []string, next int64, truncated bool) {
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.WriteHeader(http.StatusOK)
+	flusher, _ := w.(http.Flusher)
+	for _, c := range chunks {
+		_, _ = w.Write([]byte(c))
+		_, _ = w.Write([]byte("\n"))
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+	trailer, _ := json.Marshal(map[string]any{
+		"next_cursor": kv.EncodeCursor(next),
+		"truncated":   truncated,
+		"eof":         true,
+	})
+	_, _ = w.Write(trailer)
+	_, _ = w.Write([]byte("\n"))
+	if flusher != nil {
+		flusher.Flush()
+	}
+}
+
+// writeLogsSSE emits chunks as Server-Sent Events. Each chunk becomes a "log"
+// event; a final "eof" event carries the next cursor and truncation flag.
+func writeLogsSSE(w http.ResponseWriter, chunks []string, next int64, truncated bool) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	flusher, _ := w.(http.Flusher)
+	for _, c := range chunks {
+		_, _ = w.Write([]byte("event: log\ndata: "))
+		_, _ = w.Write([]byte(c))
+		_, _ = w.Write([]byte("\n\n"))
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+	trailer, _ := json.Marshal(map[string]any{
+		"next_cursor": kv.EncodeCursor(next),
+		"truncated":   truncated,
+	})
+	_, _ = w.Write([]byte("event: eof\ndata: "))
+	_, _ = w.Write(trailer)
+	_, _ = w.Write([]byte("\n\n"))
+	if flusher != nil {
+		flusher.Flush()
+	}
 }
 
 func (s *server) createSchedule(w http.ResponseWriter, r *http.Request) {
