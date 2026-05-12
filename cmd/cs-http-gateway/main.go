@@ -21,6 +21,7 @@ import (
 	"github.com/osvaldoandrade/sous/internal/config"
 	cserrors "github.com/osvaldoandrade/sous/internal/errors"
 	"github.com/osvaldoandrade/sous/internal/idempotency"
+	"github.com/osvaldoandrade/sous/internal/limits"
 	"github.com/osvaldoandrade/sous/internal/observability"
 	_ "github.com/osvaldoandrade/sous/internal/plugins/drivers"
 	"github.com/osvaldoandrade/sous/internal/plugins/messaging"
@@ -65,6 +66,7 @@ func (s *server) serve() error {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(observability.RequestIDMiddleware)
+	r.Use(rateLimitMiddleware(newRateLimiter(rateLimitConfigFromLimits(limits.FromConfig(&s.cfg)))))
 	authnProvider, err := registry.NewAuthN(s.cfg)
 	if err != nil {
 		return err

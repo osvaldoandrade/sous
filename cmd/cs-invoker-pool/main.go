@@ -17,6 +17,7 @@ import (
 	"github.com/osvaldoandrade/sous/internal/bundle"
 	"github.com/osvaldoandrade/sous/internal/config"
 	cserrors "github.com/osvaldoandrade/sous/internal/errors"
+	"github.com/osvaldoandrade/sous/internal/limits"
 	"github.com/osvaldoandrade/sous/internal/observability"
 	_ "github.com/osvaldoandrade/sous/internal/plugins/drivers"
 	"github.com/osvaldoandrade/sous/internal/plugins/messaging"
@@ -26,12 +27,13 @@ import (
 )
 
 type invoker struct {
-	cfg      config.Config
-	store    persistence.Provider
-	broker   messaging.Provider
-	runner   *runtime.Runner
-	logger   *observability.Logger
-	inflight chan struct{}
+	cfg            config.Config
+	store          persistence.Provider
+	broker         messaging.Provider
+	runner         *runtime.Runner
+	logger         *observability.Logger
+	inflight       chan struct{}
+	tenantInflight *tenantInflight
 
 	mu          sync.Mutex
 	versionSems map[string]chan struct{}
@@ -58,12 +60,13 @@ func main() {
 	defer broker.Close()
 
 	inv := &invoker{
-		cfg:         cfg,
-		store:       store,
-		broker:      broker,
-		logger:      observability.NewLogger("cs-invoker-pool"),
-		inflight:    make(chan struct{}, max(1, cfg.CSInvokerPool.Workers.MaxInflight)),
-		versionSems: make(map[string]chan struct{}),
+		cfg:            cfg,
+		store:          store,
+		broker:         broker,
+		logger:         observability.NewLogger("cs-invoker-pool"),
+		inflight:       make(chan struct{}, max(1, cfg.CSInvokerPool.Workers.MaxInflight)),
+		tenantInflight: newTenantInflight(tenantInflightCapacity()),
+		versionSems:    make(map[string]chan struct{}),
 	}
 	inv.runner = runtime.NewRunner(runtimeKV{store: store}, runtimePublisher{broker: broker}, cfg.CSInvokerPool.Limits.MaxResultBytes, cfg.CSInvokerPool.Limits.MaxErrorBytes, cfg.CSInvokerPool.Limits.MaxLogBytes)
 
@@ -137,6 +140,18 @@ func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, 
 	}
 	defer func() { <-i.inflight }()
 
+	// Per-tenant inflight quota. HTTP-triggered (sync) invokes must fail
+	// fast with CS_TENANT_INFLIGHT_LIMIT so the gateway can surface 429;
+	// queued (async) invokes wait until a slot is available. See
+	// docs/26-capacity-and-limits.md for the contract.
+	if i.tenantInflight != nil {
+		release, err := i.acquireTenantInflight(ctx, req)
+		if err != nil {
+			return err
+		}
+		defer release()
+	}
+
 	isTerminal, existing, err := i.store.IsActivationTerminal(ctx, req.Tenant, req.ActivationID)
 	if err != nil {
 		return err
@@ -200,6 +215,20 @@ func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, 
 	}
 
 	out := i.runner.Execute(ctx, bundleBytes, req)
+	// Surface size-limit enforcement at the invoker boundary. The runtime
+	// has already truncated to limits.MaxResultBytes / MaxLogBytes; here we
+	// stamp the documented sentinel header on the response so synchronous
+	// callers (via cs-http-gateway) can detect truncation, and emit a
+	// warning log line tagged with CS_RESULT_TOO_LARGE for observability.
+	// See docs/26-capacity-and-limits.md.
+	if out.Truncated {
+		out.Result = annotateTruncatedResult(out.Result)
+		if i.logger != nil {
+			i.logger.Warn(ctx, "activation truncated tenant="+req.Tenant+
+				" activation_id="+req.ActivationID+
+				" code="+string(cserrors.CSResultTooLarge))
+		}
+	}
 	terminal := activation
 	terminal.Status = out.Status
 	terminal.EndMS = time.Now().UnixMilli()
@@ -220,6 +249,14 @@ func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, 
 		if err := i.store.AppendLogChunk(ctx, req.Tenant, req.ActivationID, int64(idx), []byte(line), actTTL); err != nil {
 			i.logger.Warn(ctx, "failed to append log chunk: "+err.Error())
 		}
+	}
+	// Append a CS_LOG_LIMIT_EXCEEDED sentinel chunk so log readers (CLI,
+	// dashboards) see a stable marker when the log buffer was capped at
+	// limits.MaxLogBytes. The runtime truncates the buffer; this writes
+	// the documented sentinel exactly once at the end.
+	if out.Truncated && len(out.Logs) > 0 {
+		sentinel := []byte("[warn] " + string(cserrors.CSLogLimitExceeded))
+		_ = i.store.AppendLogChunk(ctx, req.Tenant, req.ActivationID, int64(len(out.Logs)), sentinel, actTTL)
 	}
 
 	result := api.InvocationResult{
@@ -246,6 +283,68 @@ func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, 
 		}
 	}
 	return nil
+}
+
+// annotateTruncatedResult returns a copy of the function response with the
+// documented X-CS-Truncated sentinel header set so synchronous HTTP callers
+// can detect that the runtime capped the payload at the configured limits.
+// When result is nil the function is a no-op.
+func annotateTruncatedResult(result *api.FunctionResponse) *api.FunctionResponse {
+	if result == nil {
+		return nil
+	}
+	out := *result
+	if out.Headers == nil {
+		out.Headers = make(map[string]string, 1)
+	} else {
+		copyHeaders := make(map[string]string, len(out.Headers)+1)
+		for k, v := range out.Headers {
+			copyHeaders[k] = v
+		}
+		out.Headers = copyHeaders
+	}
+	out.Headers["X-CS-Truncated"] = "response"
+	return &out
+}
+
+// tenantInflightCapacity returns the per-tenant inflight cap. It is
+// independent of the global worker pool capacity: a single tenant must not
+// be able to exhaust the pool for everyone else. The CS_INVOKER_TENANT_INFLIGHT
+// env var allows an operator override without a config-schema change; future
+// PRs may surface a dedicated YAML key. See docs/26-capacity-and-limits.md.
+func tenantInflightCapacity() int {
+	if v := os.Getenv("CS_INVOKER_TENANT_INFLIGHT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return limits.DefaultTenantMaxInflight
+}
+
+// acquireTenantInflight reserves a per-tenant inflight slot using the right
+// mode for the trigger. Sync triggers (http) fail fast with
+// CS_TENANT_INFLIGHT_LIMIT; async/queued triggers wait until capacity is
+// available. The caller is responsible for invoking the returned release on
+// completion.
+func (i *invoker) acquireTenantInflight(ctx context.Context, req api.InvocationRequest) (func(), error) {
+	if isSyncTrigger(req.Trigger.Type) {
+		release, err := i.tenantInflight.acquireSync(req.Tenant)
+		if err != nil {
+			if i.logger != nil {
+				i.logger.Warn(ctx, "tenant inflight rejection tenant="+req.Tenant+" trigger="+req.Trigger.Type)
+			}
+			return nil, err
+		}
+		return release, nil
+	}
+	return i.tenantInflight.acquireAsync(ctx, req.Tenant)
+}
+
+// isSyncTrigger returns true when the trigger has a caller waiting on a
+// response (HTTP). Schedule and cadence triggers are queued, so saturation is
+// signalled by waiting rather than a 429.
+func isSyncTrigger(triggerType string) bool {
+	return triggerType == "http"
 }
 
 func (i *invoker) versionSemaphore(req api.InvocationRequest, maxConcurrency int) chan struct{} {
