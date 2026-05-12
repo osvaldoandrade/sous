@@ -156,6 +156,13 @@ cs fn publish reconcile \
 cs fn alias set reconcile prod --version 17
 ```
 
+Alias swaps are atomic at the control plane: a concurrent invoker
+resolving the alias observes either the old or the new version, never
+a torn or empty value. `cs fn publish` rejects expired drafts (TTL
+default 24h) with exit code `1` and a `CS_VALIDATION_FAILED` error.
+See [`19-entity-state-machines.md` ("Lifecycle invariants")](19-entity-state-machines.md)
+for the full contract.
+
 ## Invoke
 
 ### Invoke by alias (sync)
