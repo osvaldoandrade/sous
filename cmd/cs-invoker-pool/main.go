@@ -40,6 +40,21 @@ type invoker struct {
 
 	mu          sync.Mutex
 	versionSems map[string]chan struct{}
+
+	// retryMetrics owns the cs_invoke_retry_total / dlq_total / retry_success_total
+	// counters described in docs/14-observability.md. They are atomic so the
+	// dispatch retry loop stays lock-free across worker goroutines.
+	retryMetrics *retryMetrics
+	// dlqPublisher is the optional envelope-aware DLQ publisher injected by
+	// tests (and by future production wiring once a tenant-DLQ topic schema
+	// is added). When nil, dispatch falls back to broker.PublishDLQInvoke
+	// with the bare original payload.
+	dlqPublisher func(ctx context.Context, tenant string, envelope api.DLQEnvelope) error
+	// defaultRetryPolicy is the operator-wide default applied to async
+	// invocations whose trigger envelope does not embed an explicit policy.
+	// Loaded from cs_invoker_pool.retry in the YAML config; falls back to
+	// api.DefaultRetryPolicy when the YAML block is absent.
+	defaultRetryPolicy api.RetryPolicy
 }
 
 func main() {
@@ -63,6 +78,7 @@ func main() {
 	defer broker.Close()
 
 	inv := &invoker{
+<<<<<<< HEAD
 		cfg:            cfg,
 		store:          store,
 		broker:         broker,
@@ -72,6 +88,17 @@ func main() {
 		samplers:       newSamplerCache(),
 		clock:          time.Now,
 		versionSems:    make(map[string]chan struct{}),
+=======
+		cfg:                cfg,
+		store:              store,
+		broker:             broker,
+		logger:             observability.NewLogger("cs-invoker-pool"),
+		inflight:           make(chan struct{}, max(1, cfg.CSInvokerPool.Workers.MaxInflight)),
+		tenantInflight:     newTenantInflight(tenantInflightCapacity()),
+		versionSems:        make(map[string]chan struct{}),
+		retryMetrics:       &retryMetrics{},
+		defaultRetryPolicy: defaultRetryPolicyFromConfig(cfg),
+>>>>>>> 813f217 (E4.03: trigger retry policy + DLQ on exhaustion)
 	}
 	inv.runner = runtime.NewRunner(runtimeKV{store: store}, runtimePublisher{broker: broker}, cfg.CSInvokerPool.Limits.MaxResultBytes, cfg.CSInvokerPool.Limits.MaxErrorBytes, cfg.CSInvokerPool.Limits.MaxLogBytes)
 
@@ -98,7 +125,11 @@ func (i *invoker) run() error {
 			defer wg.Done()
 			for {
 				err := i.broker.ConsumeInvocations(ctx, groupID, func(env messaging.Envelope, req api.InvocationRequest) error {
-					return i.handleInvocation(ctx, env, req)
+					// dispatch wraps handleInvocation with the trigger-level
+					// retry+DLQ policy from internal/api.RetryPolicy. See
+					// cmd/cs-invoker-pool/retry.go and docs/02-requirements.md
+					// "Retry & DLQ" for the contract.
+					return i.dispatch(ctx, env, req)
 				})
 				if err != nil {
 					i.logger.Error(context.Background(), "consumer failed: "+err.Error())
@@ -132,16 +163,29 @@ func (i *invoker) serveHTTP() {
 	_ = http.ListenAndServe(i.cfg.CSInvokerPool.HTTP.Addr, mux)
 }
 
+// handleInvocation is the v0.1 single-attempt dispatch path. It is kept as
+// the canonical name for backwards compatibility with tests and existing
+// call sites; new retry-aware callers should use executeOnce so they can
+// inspect the published result and feed it back to the retry policy.
 func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, req api.InvocationRequest) error {
+	_, err := i.executeOnce(ctx, env, req)
+	return err
+}
+
+// executeOnce runs exactly one invocation attempt and returns the result it
+// published to cs.results (zero-value when the request failed validation and
+// went straight to DLQ). The retry wrapper in dispatch() consults the result
+// to decide whether to retry, exhaust to DLQ, or stop.
+func (i *invoker) executeOnce(ctx context.Context, env messaging.Envelope, req api.InvocationRequest) (api.InvocationResult, error) {
 	_ = env
 	if req.ActivationID == "" || req.RequestID == "" || req.Tenant == "" || req.Namespace == "" || req.Ref.Function == "" {
 		_ = i.broker.PublishDLQInvoke(ctx, req.Tenant, req)
-		return nil
+		return api.InvocationResult{}, nil
 	}
 	select {
 	case i.inflight <- struct{}{}:
 	case <-ctx.Done():
-		return ctx.Err()
+		return api.InvocationResult{}, ctx.Err()
 	}
 	defer func() { <-i.inflight }()
 
@@ -152,14 +196,14 @@ func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, 
 	if i.tenantInflight != nil {
 		release, err := i.acquireTenantInflight(ctx, req)
 		if err != nil {
-			return err
+			return api.InvocationResult{}, err
 		}
 		defer release()
 	}
 
 	isTerminal, existing, err := i.store.IsActivationTerminal(ctx, req.Tenant, req.ActivationID)
 	if err != nil {
-		return err
+		return api.InvocationResult{}, err
 	}
 	if isTerminal {
 		stored := api.InvocationResult{
@@ -176,28 +220,28 @@ func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, 
 			}
 		}
 		_ = i.broker.PublishResult(ctx, req.Tenant, stored)
-		return nil
+		return stored, nil
 	}
 
 	version, err := i.store.ResolveVersion(ctx, req.Tenant, req.Namespace, req.Ref.Function, req.Ref.Alias, req.Ref.Version)
 	if err != nil {
-		return err
+		return api.InvocationResult{}, err
 	}
 	req.Ref.Version = version
 
 	versionMeta, bundleBytes, err := i.store.GetVersion(ctx, req.Tenant, req.Namespace, req.Ref.Function, version)
 	if err != nil {
-		return err
+		return api.InvocationResult{}, err
 	}
 	if !bundle.VerifySHA256(bundleBytes, versionMeta.SHA256) {
-		return cserrors.New(cserrors.CSValidationFailed, "bundle sha mismatch")
+		return api.InvocationResult{}, cserrors.New(cserrors.CSValidationFailed, "bundle sha mismatch")
 	}
 
 	sem := i.versionSemaphore(req, max(1, versionMeta.Config.MaxConcurrency))
 	select {
 	case sem <- struct{}{}:
 	case <-ctx.Done():
-		return ctx.Err()
+		return api.InvocationResult{}, ctx.Err()
 	}
 	defer func() { <-sem }()
 
@@ -215,6 +259,7 @@ func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, 
 		ResolvedVersion: version,
 	}
 	actTTL := time.Duration(i.cfg.CSControl.Limits.ActTTLSeconds) * time.Second
+<<<<<<< HEAD
 
 	// Stamp parent/root activation IDs for agent decision-tree tracing (E7.01).
 	// When the trigger carries parent_activation_id (set by the gateway after
@@ -244,6 +289,10 @@ func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, 
 			// continue rather than failing the invocation.
 			i.logger.Warn(ctx, "failed to append activation child: "+err.Error())
 		}
+=======
+	if err := i.store.PutActivationRunning(ctx, activation, actTTL); err != nil {
+		return api.InvocationResult{}, err
+>>>>>>> 813f217 (E4.03: trigger retry policy + DLQ on exhaustion)
 	}
 
 	// Tag the runtime context with the current activation ID so the cs-js
@@ -278,11 +327,24 @@ func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, 
 	terminal.Status = out.Status
 	terminal.EndMS = time.Now().UnixMilli()
 	terminal.DurationMS = out.DurationMS
+<<<<<<< HEAD
 	terminal.SamplingDecision = finalDecision.Reason
 	if finalDecision.PersistFull {
 		terminal.Error = out.Error
 		terminal.Result = out.Result
 		terminal.ResultTruncated = out.Truncated
+=======
+	terminal.Error = out.Error
+	terminal.Result = out.Result
+	terminal.ResultTruncated = out.Truncated
+
+	updated, err := i.store.CompleteActivationCAS(ctx, terminal, actTTL)
+	if err != nil {
+		return api.InvocationResult{}, err
+	}
+	if !updated {
+		return api.InvocationResult{}, cserrors.New(cserrors.CSKVCASFailed, "activation state changed concurrently")
+>>>>>>> 813f217 (E4.03: trigger retry policy + DLQ on exhaustion)
 	}
 
 	// Skipped activations did not write a running row, so there is no CAS
@@ -330,7 +392,7 @@ func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, 
 	}
 	if err := i.broker.PublishResult(ctx, req.Tenant, result); err != nil {
 		_ = i.broker.PublishDLQResult(ctx, req.Tenant, result)
-		return err
+		return result, err
 	}
 
 	if req.Trigger.Type == "schedule" {
@@ -338,7 +400,7 @@ func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, 
 			_ = i.store.ClearScheduleInflight(ctx, req.Tenant, req.Namespace, sched)
 		}
 	}
-	return nil
+	return result, nil
 }
 
 // annotateTruncatedResult returns a copy of the function response with the

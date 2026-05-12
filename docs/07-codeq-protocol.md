@@ -264,7 +264,78 @@ consumer goroutine and the next reconcile pass restarts it. For unordered
 mode, the consumer commits per fetched message; a failing worker raises an
 error that propagates back through the dispatcher.
 
-A richer retry/DLQ policy (configurable max attempts, park-to-DLQ
-behaviour) is tracked under E4 task-03; until then the broker's
-at-least-once retry plus the codeQ dedup store described above provides
-the only redelivery safety net.
+## Retry & DLQ
+
+Async triggers (schedule, subscription, cadence) carry an optional
+`RetryPolicy` block embedded under `trigger.source.retry_policy`:
+
+```json
+{
+  "trigger": {
+    "type": "schedule",
+    "source": {
+      "schedule_name": "reconcile",
+      "tick_seq": 42,
+      "attempt": 1,
+      "retry_policy": {
+        "max_attempts": 4,
+        "base_ms": 500,
+        "max_ms": 30000,
+        "jitter_pct": 20,
+        "retryable_errors": ["CS_RUNTIME_TIMEOUT", "CS_RATE_LIMITED", "Timeout"],
+        "dlq_topic": "cs.dlq.invoke"
+      }
+    }
+  }
+}
+```
+
+`trigger.source.attempt` is the 1-indexed running attempt counter. The
+invoker increments it on each retry; producers must initialize it to `1`
+(missing/zero is normalised). HTTP triggers ignore this block — synchronous
+clients retry on their own. Schedule, subscription and cadence triggers
+participate.
+
+On retry the invoker re-runs the same `InvocationRequest` (same
+`activation_id`, same `request_id`) after sleeping
+`min(max_ms, base_ms * 2^(attempt-1)) ± jitter_pct%`. The activation
+deduplication store collapses duplicates onto a single activation, so a
+crash-after-success that re-delivers does **not** double-charge the
+function.
+
+### DLQ envelope (`cs.dlq.invoke.v1`)
+
+When the retry budget is exhausted, the invoker publishes a typed envelope
+to the DLQ topic (`cs.dlq.invoke` by default, or `retry_policy.dlq_topic`
+when set):
+
+```json
+{
+  "schema": "cs.dlq.invoke.v1",
+  "original_payload": { "activation_id": "...", "request_id": "...", "tenant": "...", "...": "..." },
+  "last_error_code": "Timeout",
+  "last_error_message": "exceeded 300ms",
+  "attempt_count": 4,
+  "first_seen_at_ms": 1730000000000,
+  "last_seen_at_ms":  1730000017000,
+  "attempts": [
+    { "attempt": 1, "started_at_ms": 1730000000000, "duration_ms": 300, "error_code": "Timeout" },
+    { "attempt": 2, "started_at_ms": 1730000005000, "duration_ms": 300, "error_code": "Timeout" },
+    { "attempt": 3, "started_at_ms": 1730000011000, "duration_ms": 300, "error_code": "Timeout" },
+    { "attempt": 4, "started_at_ms": 1730000017000, "duration_ms": 300, "error_code": "Timeout" }
+  ]
+}
+```
+
+Topic naming conventions:
+
+- `cs.dlq.invoke` — platform-default DLQ, available to every tenant. Reserved
+  for envelope-style exhaustion plus the legacy validation-failure path
+  documented above.
+- `cs.dlq.results` — reserved for result-correlation failures (legacy).
+- `cs.dlq.tenant.<tenant>` — recommended tenant-scoped DLQ for operators who
+  prefer to demultiplex per tenant. The invoker honours this when set via
+  `retry_policy.dlq_topic`.
+
+The DLQ topic is **producer-only** from `cs-invoker-pool`. A separate replay
+worker (future scope) consumes the topic for re-enqueueing.

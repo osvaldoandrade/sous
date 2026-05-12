@@ -30,6 +30,7 @@ func TestStatusCodeMappings(t *testing.T) {
 		{CSCodeQTimeout, 504},
 		{CSRuntimeException, 500},
 		{CSRuntimeUnsupported, 400},
+		{CSRetryExhausted, 502},
 	}
 	for _, tc := range tests {
 		if got := StatusCode(tc.code); got != tc.want {

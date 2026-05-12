@@ -99,6 +99,21 @@ cs_invoker_pool:
     max_result_bytes: 262144
     max_error_bytes: 65536
     max_log_bytes: 1048576
+  # E4.03: trigger-level retry & DLQ defaults applied to async invocations
+  # (schedule, subscription, cadence). HTTP is excluded — the client owns
+  # retry for synchronous triggers. See docs/02-requirements.md
+  # "Retry & DLQ" and docs/07-codeq-protocol.md for the envelope shape.
+  retry:
+    max_attempts: 1          # 1 disables retry; matches pre-E4.03 behaviour
+    base_ms: 500
+    max_ms: 30000
+    jitter_pct: 20
+    retryable_errors:
+      - CS_RUNTIME_TIMEOUT
+      - CS_RUNTIME_DEPENDENCY_ERROR
+      - CS_RATE_LIMITED
+      - Timeout
+    dlq_topic: ""            # empty = use platform-default cs.dlq.invoke
 
 # E7.02: activation sampling lives on each trigger record, not in this
 # YAML. The example below shows the shape cs-control accepts when
