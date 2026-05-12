@@ -23,7 +23,7 @@ Agent-generated code is increasingly Python-first, but `code-sous` only ships th
 
 ## Dependencies & risks
 - Depends on Task E3.03 (manifest schema) for the `runtime` discriminator, and on the parity harness in Task E3.04 for cross-runtime assertions.
-- Embedding CPython adds a non-trivial cgo dependency; mitigation: gate behind a build tag (`+build cs_python`) and ship a separate `cs-invoker-pool` image variant during incubation.
+- Embedding CPython adds a non-trivial cgo dependency; mitigation: gate behind a build tag (`//go:build cs_python`) and ship a separate `cs-invoker-pool` image variant during incubation.
 - Sandboxing CPython is historically hard (gadgets via `__builtins__`, `gc`, `sys`); mitigation: run inside a WASI sandbox (Pyodide on Wasmtime) so the OS-level guarantees come from WASM, not from Python introspection.
 - Performance regression vs. Goja on cold start; mitigation: warm-pool reuse keyed by version sha in `cs-invoker-pool`.
 
