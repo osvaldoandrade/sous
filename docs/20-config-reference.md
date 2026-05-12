@@ -69,7 +69,18 @@ cs_control:
     max_bundle_bytes: 16777216
     draft_ttl_seconds: 86400
     activation_ttl_seconds: 604800
+  subscriptions:
+    worker_pool_default: 4   # default max_concurrency for unordered bindings
+    refresh_seconds: 10      # reconciliation interval for the consumer set
 ```
+
+`cs_control.subscriptions` configures the in-process codeQ subscription
+trigger consumer introduced by E4.02. `worker_pool_default` seeds the
+unordered-mode pool when a binding omits `max_concurrency`; ordered bindings
+always run a single goroutine. `refresh_seconds` controls how often
+cs-control re-reads the persisted binding set and reconciles its in-memory
+consumer map. See `docs/07-codeq-protocol.md` ("Subscription triggers") for
+the full delivery contract.
 
 ## cs-http-gateway
 

@@ -95,6 +95,7 @@ func (s *server) serve() error {
 		pr.Delete("/v1/tenants/{tenant}/namespaces/{namespace}/schedules/{name}", s.deleteSchedule)
 		pr.Post("/v1/tenants/{tenant}/namespaces/{namespace}/cadence/workers", s.createWorkerBinding)
 		pr.Delete("/v1/tenants/{tenant}/namespaces/{namespace}/cadence/workers/{name}", s.deleteWorkerBinding)
+		s.subscriptionRoutes(pr)
 	})
 
 	httpServer := &http.Server{
@@ -104,6 +105,15 @@ func (s *server) serve() error {
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+
+	// Start in-process codeQ subscription consumers (E4.02). The runner
+	// reconciles its binding map on a refresh interval and tears down
+	// per-binding goroutines when bindings are deleted. cs-control is the
+	// chosen host for v0.1; production deployments may relocate this to a
+	// dedicated daemon — see docs/07-codeq-protocol.md.
+	subCtx, subCancel := context.WithCancel(context.Background())
+	defer subCancel()
+	go s.runSubscriptions(subCtx)
 
 	s.logger.Info(context.Background(), "cs-control starting on "+s.cfg.CSControl.HTTP.Addr)
 	return httpServer.ListenAndServe()

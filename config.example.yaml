@@ -59,6 +59,14 @@ cs_control:
     max_bundle_bytes: 16777216
     draft_ttl_seconds: 86400
     activation_ttl_seconds: 604800
+  subscriptions:
+    # E4.02 codeQ subscription trigger. cs-control starts an in-process
+    # consumer per enabled SubscriptionBinding and reconciles the set on
+    # this interval. worker_pool_default seeds max_concurrency for new
+    # unordered bindings; ordered bindings always run with a single
+    # goroutine. See docs/07-codeq-protocol.md.
+    worker_pool_default: 4
+    refresh_seconds: 10
 
 cs_http_gateway:
   http:

@@ -793,6 +793,101 @@ func (s *Store) DeleteWorkerBinding(ctx context.Context, tenant, namespace, name
 	return err
 }
 
+func (s *Store) PutSubscriptionBinding(ctx context.Context, rec api.SubscriptionBinding) error {
+	raw, _ := json.Marshal(rec)
+	metaKey := SubscriptionMetaKey(rec.Tenant, rec.Namespace, rec.Name)
+	idxKey := SubscriptionIndexKey(rec.Tenant, rec.Namespace)
+	pipe := s.client.TxPipeline()
+	pipe.Set(ctx, metaKey, raw, 0)
+	pipe.SAdd(ctx, idxKey, rec.Name)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return cserrors.Wrap(cserrors.CSKVWriteFailed, "failed to put subscription binding", err)
+	}
+	return nil
+}
+
+func (s *Store) GetSubscriptionBinding(ctx context.Context, tenant, namespace, name string) (api.SubscriptionBinding, error) {
+	var out api.SubscriptionBinding
+	raw, err := s.client.Get(ctx, SubscriptionMetaKey(tenant, namespace, name)).Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return out, cserrors.New(cserrors.CSValidationFailed, "subscription binding not found")
+		}
+		return out, err
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+func (s *Store) ListSubscriptionBindings(ctx context.Context, tenant, namespace string) ([]api.SubscriptionBinding, error) {
+	names, err := s.client.SMembers(ctx, SubscriptionIndexKey(tenant, namespace)).Result()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]api.SubscriptionBinding, 0, len(names))
+	for _, name := range names {
+		raw, err := s.client.Get(ctx, SubscriptionMetaKey(tenant, namespace, name)).Bytes()
+		if err != nil {
+			continue
+		}
+		var rec api.SubscriptionBinding
+		if err := json.Unmarshal(raw, &rec); err == nil {
+			out = append(out, rec)
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) ListAllSubscriptionBindings(ctx context.Context) ([]api.SubscriptionBinding, error) {
+	var (
+		cursor uint64
+		out    []api.SubscriptionBinding
+	)
+	for {
+		keys, next, err := s.client.Scan(ctx, cursor, "cs:subscription:*:*:index", 100).Result()
+		if err != nil {
+			return nil, err
+		}
+		for _, key := range keys {
+			parts := strings.Split(key, ":")
+			if len(parts) < 5 {
+				continue
+			}
+			tenant := parts[2]
+			namespace := parts[3]
+			names, err := s.client.SMembers(ctx, key).Result()
+			if err != nil {
+				continue
+			}
+			for _, name := range names {
+				raw, err := s.client.Get(ctx, SubscriptionMetaKey(tenant, namespace, name)).Bytes()
+				if err != nil {
+					continue
+				}
+				var rec api.SubscriptionBinding
+				if err := json.Unmarshal(raw, &rec); err == nil {
+					out = append(out, rec)
+				}
+			}
+		}
+		if next == 0 {
+			break
+		}
+		cursor = next
+	}
+	return out, nil
+}
+
+func (s *Store) DeleteSubscriptionBinding(ctx context.Context, tenant, namespace, name string) error {
+	pipe := s.client.TxPipeline()
+	pipe.Del(ctx, SubscriptionMetaKey(tenant, namespace, name))
+	pipe.SRem(ctx, SubscriptionIndexKey(tenant, namespace), name)
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
 func (s *Store) PutCadenceTaskMapping(ctx context.Context, tenant, namespace, taskTokenHash, activationID string, ttl time.Duration) error {
 	payload := map[string]any{"activation_id": activationID, "created_at_ms": time.Now().UnixMilli()}
 	raw, _ := json.Marshal(payload)

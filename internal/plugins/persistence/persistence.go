@@ -59,6 +59,12 @@ type Provider interface {
 	GetWorkerBinding(ctx context.Context, tenant, namespace, name string) (api.WorkerBinding, error)
 	DeleteWorkerBinding(ctx context.Context, tenant, namespace, name string) error
 
+	PutSubscriptionBinding(ctx context.Context, rec api.SubscriptionBinding) error
+	GetSubscriptionBinding(ctx context.Context, tenant, namespace, name string) (api.SubscriptionBinding, error)
+	ListSubscriptionBindings(ctx context.Context, tenant, namespace string) ([]api.SubscriptionBinding, error)
+	ListAllSubscriptionBindings(ctx context.Context) ([]api.SubscriptionBinding, error)
+	DeleteSubscriptionBinding(ctx context.Context, tenant, namespace, name string) error
+
 	PutCadenceTaskMapping(ctx context.Context, tenant, namespace, taskTokenHash, activationID string, ttl time.Duration) error
 	GetCadenceTaskMapping(ctx context.Context, tenant, namespace, taskTokenHash string) (string, error)
 	DeleteCadenceTaskMapping(ctx context.Context, tenant, namespace, taskTokenHash string) error
