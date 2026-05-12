@@ -5,7 +5,7 @@ BIN_DIR := bin
 
 CMDS := cs-control cs-http-gateway cs-invoker-pool cs-scheduler cs-cadence-poller cs-cli
 
-.PHONY: test lint build clean integration test-contract
+.PHONY: test lint build clean integration test-contract slo-validate
 
 test:
 	$(GO) test ./...
@@ -34,3 +34,17 @@ test-contract:
 
 clean:
 	rm -rf $(BIN_DIR)
+
+# slo-validate parses deploy/observability/slo.yaml and
+# deploy/observability/alerts.rules.yaml as YAML and, when promtool is
+# available on PATH, runs `promtool check rules` against the alert file.
+# This target is intentionally dependency-free (python3 stdlib only) so it
+# can run in any CI container without extra installs.
+slo-validate:
+	@python3 -c "import yaml,sys; yaml.safe_load(open(sys.argv[1]))" deploy/observability/slo.yaml
+	@python3 -c "import yaml,sys; yaml.safe_load(open(sys.argv[1]))" deploy/observability/alerts.rules.yaml
+	@if command -v promtool >/dev/null 2>&1; then \
+		promtool check rules deploy/observability/alerts.rules.yaml; \
+	else \
+		echo "promtool not installed; YAML parse only"; \
+	fi
