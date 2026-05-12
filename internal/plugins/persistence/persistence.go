@@ -37,6 +37,10 @@ type Provider interface {
 
 	AppendLogChunk(ctx context.Context, tenant, activationID string, chunk int64, payload []byte, ttl time.Duration) error
 	ListLogChunks(ctx context.Context, tenant, activationID string, offset, limit int64) ([]string, int64, error)
+	// LogTruncated reports whether the persistence layer hit the configured
+	// per-activation log byte cap during writes. cs-control consults it on
+	// read to surface the X-CS-Truncated: logs response header.
+	LogTruncated(ctx context.Context, tenant, activationID string) (bool, error)
 
 	PutSchedule(ctx context.Context, rec api.ScheduleRecord) error
 	ListSchedules(ctx context.Context, tenant, namespace string) ([]api.ScheduleRecord, error)

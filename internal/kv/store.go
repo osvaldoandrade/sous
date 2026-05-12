@@ -8,11 +8,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/redis/go-redis/v9"
 
 	"github.com/osvaldoandrade/sous/internal/api"
 	cserrors "github.com/osvaldoandrade/sous/internal/errors"
+	"github.com/osvaldoandrade/sous/internal/limits"
 )
 
 var terminalStatuses = map[string]struct{}{
@@ -21,9 +23,27 @@ var terminalStatuses = map[string]struct{}{
 	"timeout": {},
 }
 
+// LogTruncationReason is the canonical reason string written into the
+// truncation sentinel chunk when an activation's log cap is exceeded. It
+// matches the contract documented in docs/04-api-rest.md.
+const LogTruncationReason = "log_limit_exceeded"
+
+// tombstoneTTLMultiplier extends the activation tombstone marker beyond the
+// activation TTL so that GetActivation can distinguish "never existed" (404)
+// from "expired" (410 CS_ACTIVATION_TTL_EXPIRED). The multiplier keeps the
+// tombstone cheap (one small key) while still surviving normal operational
+// replays of activation reads.
+const tombstoneTTLMultiplier = 4
+
 type Store struct {
 	client        *redis.Client
 	casActivation *redis.Script
+
+	// limits captures the size/TTL caps the store enforces on the activation
+	// write path (256 KiB result, 1 MiB logs, etc.). Defaults to
+	// limits.Defaults(); production callers should invoke SetLimits at
+	// startup so the loaded config wins.
+	limits limits.Limits
 }
 
 func NewStore(addr, password string) *Store {
@@ -45,7 +65,20 @@ redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[4])
 redis.call('SET', KEYS[2], ARGV[3], 'EX', ARGV[4])
 return 1
 `)
-	return &Store{client: client, casActivation: casScript}
+	return &Store{client: client, casActivation: casScript, limits: limits.Defaults()}
+}
+
+// SetLimits installs the size/TTL caps the store should enforce on the
+// activation write path. Call once at startup before traffic begins;
+// concurrent callers should treat Limits as immutable thereafter.
+func (s *Store) SetLimits(l limits.Limits) {
+	s.limits = l
+}
+
+// Limits returns the limits currently enforced by the store. Useful for
+// surfacing the configured cap in error messages or metrics labels.
+func (s *Store) Limits() limits.Limits {
+	return s.limits
 }
 
 func (s *Store) Close() error {
@@ -272,10 +305,12 @@ func (s *Store) ResolveVersion(ctx context.Context, tenant, namespace, function,
 }
 
 func (s *Store) PutActivationRunning(ctx context.Context, rec api.ActivationRecord, ttl time.Duration) error {
+	s.enforceResultCap(&rec)
 	raw, _ := json.Marshal(rec)
 	pipe := s.client.TxPipeline()
 	pipe.Set(ctx, ActivationMetaKey(rec.Tenant, rec.ActivationID), raw, ttl)
 	pipe.Set(ctx, ActivationStatusKey(rec.Tenant, rec.ActivationID), rec.Status, ttl)
+	pipe.Set(ctx, ActivationTombstoneKey(rec.Tenant, rec.ActivationID), strconv.FormatInt(rec.StartMS, 10), tombstoneTTL(ttl))
 	if _, err := pipe.Exec(ctx); err != nil {
 		return cserrors.Wrap(cserrors.CSKVWriteFailed, "failed to write activation start", err)
 	}
@@ -283,6 +318,7 @@ func (s *Store) PutActivationRunning(ctx context.Context, rec api.ActivationReco
 }
 
 func (s *Store) CompleteActivationCAS(ctx context.Context, rec api.ActivationRecord, ttl time.Duration) (bool, error) {
+	s.enforceResultCap(&rec)
 	raw, _ := json.Marshal(rec)
 	ttlSeconds := int64(ttl / time.Second)
 	if ttlSeconds <= 0 {
@@ -295,6 +331,12 @@ func (s *Store) CompleteActivationCAS(ctx context.Context, rec api.ActivationRec
 	if err != nil {
 		return false, cserrors.Wrap(cserrors.CSKVCASFailed, "failed CAS update for activation terminal state", err)
 	}
+	if res == 1 {
+		// Refresh the tombstone so the 410 window anchors to the terminal
+		// write rather than the initial start write.
+		_ = s.client.Set(ctx, ActivationTombstoneKey(rec.Tenant, rec.ActivationID),
+			strconv.FormatInt(rec.EndMS, 10), tombstoneTTL(ttl)).Err()
+	}
 	return res == 1, nil
 }
 
@@ -303,6 +345,12 @@ func (s *Store) GetActivation(ctx context.Context, tenant, activationID string) 
 	raw, err := s.client.Get(ctx, ActivationMetaKey(tenant, activationID)).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
+			// Disambiguate "expired" vs "never existed": the tombstone outlives
+			// the activation TTL by tombstoneTTLMultiplier so an expired
+			// activation still carries the marker and gets a 410.
+			if tomb, tombErr := s.client.Get(ctx, ActivationTombstoneKey(tenant, activationID)).Result(); tombErr == nil && tomb != "" {
+				return out, cserrors.New(cserrors.CSActivationTTLExpired, "activation expired")
+			}
 			return out, cserrors.New(cserrors.CSValidationFailed, "activation not found")
 		}
 		return out, cserrors.Wrap(cserrors.CSKVReadFailed, "failed to read activation", err)
@@ -311,6 +359,65 @@ func (s *Store) GetActivation(ctx context.Context, tenant, activationID string) 
 		return out, err
 	}
 	return out, nil
+}
+
+// enforceResultCap truncates an activation's result body to the configured
+// MaxResultBytes cap (default 256 KiB, per docs/02-requirements.md and
+// docs/26-capacity-and-limits.md). When truncation occurs the record's
+// ResultTruncated flag is set so read paths can surface X-CS-Truncated: result.
+// Truncation respects UTF-8 boundaries so callers never decode a partial rune.
+func (s *Store) enforceResultCap(rec *api.ActivationRecord) {
+	if rec == nil || rec.Result == nil {
+		return
+	}
+	maxBytes := s.maxResultBytes()
+	if len(rec.Result.Body) <= maxBytes {
+		return
+	}
+	rec.Result.Body = truncateUTF8(rec.Result.Body, maxBytes)
+	rec.ResultTruncated = true
+}
+
+func (s *Store) maxResultBytes() int {
+	if s.limits.MaxResultBytes > 0 {
+		return s.limits.MaxResultBytes
+	}
+	return limits.DefaultMaxResultBytes
+}
+
+func (s *Store) maxLogBytes() int {
+	if s.limits.MaxLogBytes > 0 {
+		return s.limits.MaxLogBytes
+	}
+	return limits.DefaultMaxLogBytes
+}
+
+// truncateUTF8 returns s truncated to at most maxBytes bytes on a valid UTF-8
+// rune boundary. It never returns a string longer than maxBytes.
+func truncateUTF8(s string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(s) <= maxBytes {
+		return s
+	}
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}
+
+// tombstoneTTL stretches the activation TTL by a small multiplier so that
+// GetActivation can return CS_ACTIVATION_TTL_EXPIRED (410) for a while after
+// the activation data itself has been evicted by KVRocks. Callers that pass a
+// non-positive ttl get a one-day tombstone so misconfiguration doesn't make
+// expiry indistinguishable from absence.
+func tombstoneTTL(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		return 24 * time.Hour
+	}
+	return ttl * tombstoneTTLMultiplier
 }
 
 func (s *Store) SaveResultByRequestID(ctx context.Context, tenant, requestID string, result api.InvocationResult, ttl time.Duration) error {
@@ -336,17 +443,92 @@ func (s *Store) GetResultByRequestID(ctx context.Context, tenant, requestID stri
 	return out, nil
 }
 
+// AppendLogChunk persists a single log chunk for an activation while enforcing
+// the configured per-activation log byte cap (default 1 MiB). When a chunk
+// would push the cumulative byte counter past the cap the chunk is truncated
+// on a UTF-8 boundary, a truncation sentinel chunk is appended, the
+// LogTruncatedKey is set, and subsequent calls become silent no-ops so the
+// cap is strict. Returning nil from the no-op branch keeps the caller's
+// write loop simple: it does not have to track the truncation state itself.
 func (s *Store) AppendLogChunk(ctx context.Context, tenant, activationID string, chunk int64, payload []byte, ttl time.Duration) error {
+	maxBytes := s.maxLogBytes()
+	bytesKey := LogBytesKey(tenant, activationID)
+	truncKey := LogTruncatedKey(tenant, activationID)
+
+	// Strict mode: once the sentinel has been written, drop subsequent chunks
+	// rather than letting the activation balloon past the cap.
+	if exists, err := s.client.Exists(ctx, truncKey).Result(); err == nil && exists > 0 {
+		return nil
+	}
+
+	used, err := s.client.Get(ctx, bytesKey).Int64()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return cserrors.Wrap(cserrors.CSKVReadFailed, "failed to read log byte counter", err)
+	}
+	if err != nil {
+		used = 0
+	}
+
+	remaining := int64(maxBytes) - used
+	if remaining <= 0 {
+		return s.writeTruncationSentinel(ctx, tenant, activationID, chunk, maxBytes, ttl)
+	}
+
+	truncated := false
+	if int64(len(payload)) > remaining {
+		payload = []byte(truncateUTF8(string(payload), int(remaining)))
+		truncated = true
+	}
+
 	chunkKey := LogChunkKey(tenant, activationID, chunk)
 	idxKey := LogChunkIndexKey(tenant, activationID)
 	pipe := s.client.TxPipeline()
 	pipe.Set(ctx, chunkKey, payload, ttl)
 	pipe.ZAdd(ctx, idxKey, redis.Z{Score: float64(chunk), Member: chunk})
 	pipe.Expire(ctx, idxKey, ttl)
+	pipe.IncrBy(ctx, bytesKey, int64(len(payload)))
+	pipe.Expire(ctx, bytesKey, ttl)
 	if _, err := pipe.Exec(ctx); err != nil {
 		return cserrors.Wrap(cserrors.CSKVWriteFailed, "failed to append log chunk", err)
 	}
+
+	if truncated {
+		return s.writeTruncationSentinel(ctx, tenant, activationID, chunk+1, maxBytes, ttl)
+	}
 	return nil
+}
+
+// writeTruncationSentinel appends a final chunk that records the truncation
+// boundary and sets the LogTruncatedKey marker so subsequent appends become
+// no-ops and read paths can surface X-CS-Truncated: logs.
+func (s *Store) writeTruncationSentinel(ctx context.Context, tenant, activationID string, chunk int64, maxBytes int, ttl time.Duration) error {
+	sentinel, _ := json.Marshal(map[string]any{
+		"truncated":   true,
+		"reason":      LogTruncationReason,
+		"limit_bytes": maxBytes,
+	})
+	chunkKey := LogChunkKey(tenant, activationID, chunk)
+	idxKey := LogChunkIndexKey(tenant, activationID)
+	pipe := s.client.TxPipeline()
+	pipe.Set(ctx, chunkKey, sentinel, ttl)
+	pipe.ZAdd(ctx, idxKey, redis.Z{Score: float64(chunk), Member: chunk})
+	pipe.Expire(ctx, idxKey, ttl)
+	pipe.Set(ctx, LogTruncatedKey(tenant, activationID), "1", ttl)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return cserrors.Wrap(cserrors.CSKVWriteFailed, "failed to append truncation sentinel", err)
+	}
+	return nil
+}
+
+// LogTruncated reports whether the per-activation log cap has been hit for the
+// given activation. Read paths use it to add the X-CS-Truncated: logs response
+// header without scanning every chunk.
+func (s *Store) LogTruncated(ctx context.Context, tenant, activationID string) (bool, error) {
+	v, err := s.client.Exists(ctx, LogTruncatedKey(tenant, activationID)).Result()
+	if err != nil {
+		return false, cserrors.Wrap(cserrors.CSKVReadFailed, "failed to read log truncation marker", err)
+	}
+	return v > 0, nil
 }
 
 func (s *Store) ListLogChunks(ctx context.Context, tenant, activationID string, offset, limit int64) ([]string, int64, error) {

@@ -42,6 +42,7 @@ type FakePersistence struct {
 
 	AppendLogChunkFn func(context.Context, string, string, int64, []byte, time.Duration) error
 	ListLogChunksFn  func(context.Context, string, string, int64, int64) ([]string, int64, error)
+	LogTruncatedFn   func(context.Context, string, string) (bool, error)
 
 	PutScheduleFn           func(context.Context, api.ScheduleRecord) error
 	ListSchedulesFn         func(context.Context, string, string) ([]api.ScheduleRecord, error)
@@ -235,6 +236,13 @@ func (f *FakePersistence) ListLogChunks(ctx context.Context, tenant, activationI
 		return f.ListLogChunksFn(ctx, tenant, activationID, offset, limit)
 	}
 	return nil, 0, nil
+}
+
+func (f *FakePersistence) LogTruncated(ctx context.Context, tenant, activationID string) (bool, error) {
+	if f.LogTruncatedFn != nil {
+		return f.LogTruncatedFn(ctx, tenant, activationID)
+	}
+	return false, nil
 }
 
 func (f *FakePersistence) PutSchedule(ctx context.Context, rec api.ScheduleRecord) error {

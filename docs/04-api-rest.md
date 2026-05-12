@@ -208,6 +208,74 @@ Response includes:
 - duration
 - error fields
 - logs pointers
+- `result_truncated` boolean (set when the function result exceeded the 256 KiB cap)
+
+Response headers:
+
+- `X-CS-Truncated: result` — emitted when the persisted result body was
+  truncated to the configured `cs_invoker_pool.limits.max_result_bytes` cap.
+
+Status `410 CS_ACTIVATION_TTL_EXPIRED` is returned when the activation
+record has aged past the configured `cs_control.limits.activation_ttl_seconds`
+TTL (default 7 days). The platform retains a small tombstone marker that lets
+the API distinguish "expired" (410) from "never existed" (404) for a generous
+window after expiry.
+
+### Activation logs
+
+`GET /v1/tenants/{tenant}/activations/{activation_id}/logs`
+
+Query parameters:
+
+- `cursor` — opaque pagination cursor returned as `next_cursor` from the
+  previous page. Omit (or pass an empty string) to start at the beginning.
+- `limit` — maximum number of log chunks to return in this page. Default
+  `100`, max `500`; out-of-range values fall back to `100`.
+- `format` — set to `ndjson` or `sse` to receive a streamed response (see
+  below). Defaults to a JSON envelope.
+
+Default JSON response (`200`):
+
+```json
+{
+  "chunks": ["[info] hello", "[info] world"],
+  "next_cursor": "2",
+  "cursor": "2",
+  "truncated": false
+}
+```
+
+- `next_cursor` is the value to pass as `cursor` on the next request. When
+  the server returns fewer chunks than `limit` the field is an empty string,
+  signalling end-of-stream.
+- `cursor` is retained as an alias of `next_cursor` for backward
+  compatibility with existing clients.
+- `truncated` mirrors the `X-CS-Truncated: logs` header (see below).
+
+Streaming responses can be requested either via `Accept` or `?format=`:
+
+- `Accept: application/x-ndjson` (or `?format=ndjson`) — emits one JSON
+  object per line: each log chunk first, then a trailing
+  `{"eof": true, "next_cursor": "...", "truncated": false}` object so the
+  client can stop or paginate cleanly. The body is flushed eagerly so
+  `cs activation logs --follow` can tail without buffering.
+- `Accept: text/event-stream` (or `?format=sse`) — emits Server-Sent Events
+  with one `event: log` per chunk and a final `event: eof` carrying the
+  next cursor and truncation flag.
+
+Response headers:
+
+- `X-CS-Truncated: logs` — emitted when the cumulative log bytes for the
+  activation reached the configured
+  `cs_invoker_pool.limits.max_log_bytes` cap (default 1 MiB). The chunk
+  list will contain a trailing sentinel record:
+
+  ```json
+  { "truncated": true, "reason": "log_limit_exceeded", "limit_bytes": 1048576 }
+  ```
+
+  Subsequent log writes for the activation are dropped to keep the strict
+  cap in place.
 
 ## Schedules
 
