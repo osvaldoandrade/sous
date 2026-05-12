@@ -22,6 +22,13 @@ func VersionBundleKey(tenant, namespace, function string, version int64) string 
 	return fmt.Sprintf("cs:fn:%s:%s:%s:ver:%d:bundle", tenant, namespace, function, version)
 }
 
+// SBOMKey is where the CycloneDX SBOM produced at publish time lives.
+// Layout aligns with the E5.03 issue: cs:sbom:{tenant}:{ns}:{fn}:{ver}.
+// The value is the canonical CycloneDX 1.5 JSON document bytes.
+func SBOMKey(tenant, namespace, function string, version int64) string {
+	return fmt.Sprintf("cs:sbom:%s:%s:%s:%d", tenant, namespace, function, version)
+}
+
 func AliasKey(tenant, namespace, function, alias string) string {
 	return fmt.Sprintf("cs:fn:%s:%s:%s:alias:%s", tenant, namespace, function, alias)
 }

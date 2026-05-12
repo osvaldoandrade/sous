@@ -23,6 +23,12 @@ type Provider interface {
 	PublishVersion(ctx context.Context, tenant, namespace, function string, versionMeta api.VersionRecord, bundle []byte, alias string) (int64, error)
 	GetVersion(ctx context.Context, tenant, namespace, function string, version int64) (api.VersionRecord, []byte, error)
 	GetLatestVersion(ctx context.Context, tenant, namespace, function string) (api.VersionRecord, error)
+	// PutSBOM stores the CycloneDX SBOM bytes generated at publish time
+	// for a version. GetSBOM returns CS_VALIDATION_FAILED with "sbom
+	// not found" when no SBOM has been persisted, which cs-control
+	// surfaces as HTTP 404. See E5.03 (#15) for the contract.
+	PutSBOM(ctx context.Context, tenant, namespace, function string, version int64, sbom []byte) error
+	GetSBOM(ctx context.Context, tenant, namespace, function string, version int64) ([]byte, error)
 	SetAlias(ctx context.Context, tenant, namespace, function, alias string, version int64) error
 	GetAlias(ctx context.Context, tenant, namespace, function, alias string) (api.AliasRecord, error)
 	ListAliases(ctx context.Context, tenant, namespace, function string) ([]api.AliasRecord, error)

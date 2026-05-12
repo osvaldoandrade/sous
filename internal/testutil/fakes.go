@@ -28,6 +28,8 @@ type FakePersistence struct {
 	PublishVersionFn   func(context.Context, string, string, string, api.VersionRecord, []byte, string) (int64, error)
 	GetVersionFn       func(context.Context, string, string, string, int64) (api.VersionRecord, []byte, error)
 	GetLatestVersionFn func(context.Context, string, string, string) (api.VersionRecord, error)
+	PutSBOMFn          func(context.Context, string, string, string, int64, []byte) error
+	GetSBOMFn          func(context.Context, string, string, string, int64) ([]byte, error)
 	SetAliasFn         func(context.Context, string, string, string, string, int64) error
 	GetAliasFn         func(context.Context, string, string, string, string) (api.AliasRecord, error)
 	ListAliasesFn      func(context.Context, string, string, string) ([]api.AliasRecord, error)
@@ -158,6 +160,20 @@ func (f *FakePersistence) GetLatestVersion(ctx context.Context, tenant, namespac
 		return f.GetLatestVersionFn(ctx, tenant, namespace, function)
 	}
 	return api.VersionRecord{}, cserrors.New(cserrors.CSValidationFailed, "version not found")
+}
+
+func (f *FakePersistence) PutSBOM(ctx context.Context, tenant, namespace, function string, version int64, sbom []byte) error {
+	if f.PutSBOMFn != nil {
+		return f.PutSBOMFn(ctx, tenant, namespace, function, version, sbom)
+	}
+	return nil
+}
+
+func (f *FakePersistence) GetSBOM(ctx context.Context, tenant, namespace, function string, version int64) ([]byte, error) {
+	if f.GetSBOMFn != nil {
+		return f.GetSBOMFn(ctx, tenant, namespace, function, version)
+	}
+	return nil, cserrors.New(cserrors.CSValidationFailed, "sbom not found")
 }
 
 func (f *FakePersistence) SetAlias(ctx context.Context, tenant, namespace, function, alias string, version int64) error {
