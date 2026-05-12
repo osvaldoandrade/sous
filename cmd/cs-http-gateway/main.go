@@ -20,6 +20,7 @@ import (
 	"github.com/osvaldoandrade/sous/internal/authz"
 	"github.com/osvaldoandrade/sous/internal/config"
 	cserrors "github.com/osvaldoandrade/sous/internal/errors"
+	"github.com/osvaldoandrade/sous/internal/idempotency"
 	"github.com/osvaldoandrade/sous/internal/observability"
 	_ "github.com/osvaldoandrade/sous/internal/plugins/drivers"
 	"github.com/osvaldoandrade/sous/internal/plugins/messaging"
@@ -28,9 +29,10 @@ import (
 )
 
 type server struct {
-	cfg    config.Config
-	store  persistence.Provider
-	broker messaging.Provider
+	cfg       config.Config
+	store     persistence.Provider
+	broker    messaging.Provider
+	idemStore idempotency.Store
 }
 
 func main() {
@@ -53,7 +55,7 @@ func main() {
 	}
 	defer broker.Close()
 
-	s := &server{cfg: cfg, store: store, broker: broker}
+	s := &server{cfg: cfg, store: store, broker: broker, idemStore: idempotency.NewMemoryStore(nil)}
 	if err := s.serve(); err != nil {
 		panic(err)
 	}
@@ -82,6 +84,7 @@ func (s *server) serve() error {
 
 	r.Group(func(pr chi.Router) {
 		pr.Use(authz.AuthnMiddleware(authnProvider))
+		pr.Use(idempotencyMiddleware(s.idemStore, 0))
 		pr.HandleFunc("/v1/web/{tenant}/{namespace}/{function}/{ref}", s.invokeHTTP)
 		pr.HandleFunc("/v1/web/{tenant}/{namespace}/{function}/{ref}/*", s.invokeHTTP)
 	})

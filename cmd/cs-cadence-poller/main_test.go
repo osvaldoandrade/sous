@@ -17,6 +17,7 @@ import (
 	"github.com/osvaldoandrade/sous/internal/cadence"
 	"github.com/osvaldoandrade/sous/internal/config"
 	cserrors "github.com/osvaldoandrade/sous/internal/errors"
+	"github.com/osvaldoandrade/sous/internal/idempotency"
 	"github.com/osvaldoandrade/sous/internal/observability"
 	"github.com/osvaldoandrade/sous/internal/plugins/messaging"
 	"github.com/osvaldoandrade/sous/internal/testutil"
@@ -74,6 +75,7 @@ func newTestPoller(store *testutil.FakePersistence, broker *testutil.FakeMessagi
 		bindingSems:   make(map[string]chan struct{}),
 		activation:    make(map[string]taskInfo),
 		heartbeatLast: make(map[string]time.Time),
+		idemStore:     idempotency.NewMemoryStore(nil),
 	}
 }
 
