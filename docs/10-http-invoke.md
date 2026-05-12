@@ -104,8 +104,33 @@ The gateway accepts an optional header:
 
 - `Idempotency-Key`
 
-If set, the gateway derives `activation_id` as:
+Format:
 
-- UUIDv5(namespace=tenant, name=Idempotency-Key + function ref)
+- `[A-Za-z0-9_-]{8,128}`
+- Keys that do not match this pattern are rejected with `400 CS_VALIDATION_FAILED`.
 
-If absent, the gateway generates UUIDv4.
+Derivation:
+
+- If set, the gateway derives `activation_id = UUIDv5(namespace=tenant, name=Idempotency-Key + function ref)`.
+- If absent, the gateway generates UUIDv4 and does **not** persist a dedup record.
+
+Dedup contract (when the header is present):
+
+- The gateway computes a canonical body fingerprint `sha256(request_body)`.
+- The dedup record is keyed by `idem:{tenant}:{namespace}:{function}:{ref}:{key}` and persisted with TTL = `function timeout + 3600s` (configurable; default 1h when the function timeout is unknown).
+- The dedup record is implemented by the `internal/idempotency.Store` contract: production deployments back it with KVRocks; tests use the in-memory implementation.
+
+Replay behaviour:
+
+- Same key + same body, terminal record present → the gateway replays the cached `statusCode`, headers, and body and adds the response header `X-CS-Idempotency-Replay: 1`. The function is **not** re-executed.
+- Same key + different body → the gateway returns `409 CS_IDEMPOTENCY_CONFLICT` without re-executing the function. See `docs/21-errors.md`.
+- New key → the gateway forwards the request to the function and persists the resulting response on success (status < 500). 5xx responses are **not** cached so the next retry can attempt a fresh execution.
+
+Response headers:
+
+- `X-CS-Idempotency-Replay: 1` is set only on cache-hit replays. Clients can use this header to distinguish a fresh activation from a replayed cached result.
+
+Scope:
+
+- The dedup key always includes the tenant, namespace, function, and ref so two tenants (or two function versions) cannot collide on the same user-supplied `Idempotency-Key`.
+- Idempotency is advisory: clients that do not send the header still receive the legacy UUIDv4 activation_id and no dedup guarantee.

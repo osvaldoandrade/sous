@@ -139,6 +139,32 @@ The poller rate-limits heartbeats per activation:
 
 - `heartbeat.max_per_second` default 2
 
+## Idempotency and dedup
+
+Cadence delivers activity tasks with **at-least-once** semantics: a worker
+that times out, restarts, or fails to respond on a heartbeat will see the
+same `task_token` again on retry. The poller collapses these redeliveries
+into a single logical activation:
+
+- `activation_id = UUIDv5(namespace=OID, name="cadence:" + tenant + ":" + sha256(task_token))`.
+  Every redelivery of the same task_token therefore reuses the same
+  `activation_id`, so heartbeats and the eventual completion line up across
+  retry attempts.
+- Before publishing an `InvocationRequest`, the poller consults the dedup
+  store (`internal/idempotency.Store`) keyed by `sha256(task_token)`. If a
+  terminal record already exists (the original delivery completed but
+  Cadence didn't see the response in time), the poller replays the cached
+  result to Cadence via `RespondActivityTaskCompleted` /
+  `RespondActivityTaskFailed` without re-running the function.
+- When `consumeResults` observes a terminal `InvocationResult`, it persists
+  a `cadenceCachedResult` payload (`status`, `result`, `error`) into the
+  dedup store before calling Cadence. The TTL is 24h, dominating Cadence's
+  activity heartbeat/retry windows.
+
+The dedup store is the same primitive used by the HTTP gateway and codeQ
+consumer (`internal/idempotency`); production backs it with KVRocks while
+tests use the in-memory implementation.
+
 ## Recovery
 
 The poller persists token mappings in KVRocks for crash recovery.
@@ -158,7 +184,9 @@ The poller deletes this key after it responds to Cadence.
 If the poller crashes:
 
 - Cadence retries the Activity based on Cadence timeouts and retry policy.
-- The repeated task generates a new Activation.
+- The repeated task_token resolves to the **same** activation_id via the
+  UUIDv5 derivation above; the dedup store replays the cached completion
+  rather than spawning a fresh activation.
 
 ## Observability
 

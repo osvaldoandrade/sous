@@ -19,6 +19,7 @@ import (
 	"github.com/osvaldoandrade/sous/internal/cadence"
 	"github.com/osvaldoandrade/sous/internal/config"
 	cserrors "github.com/osvaldoandrade/sous/internal/errors"
+	"github.com/osvaldoandrade/sous/internal/idempotency"
 	"github.com/osvaldoandrade/sous/internal/observability"
 	_ "github.com/osvaldoandrade/sous/internal/plugins/drivers"
 	"github.com/osvaldoandrade/sous/internal/plugins/messaging"
@@ -39,7 +40,19 @@ type poller struct {
 	activation  map[string]taskInfo
 
 	heartbeatLast map[string]time.Time
+
+	// idemStore deduplicates Cadence activity-task deliveries by hashing the
+	// task_token. When a poll returns a task whose token already has a
+	// terminal record, we skip publishing a fresh invocation and reply to
+	// Cadence with the cached completion instead.
+	idemStore idempotency.Store
 }
+
+// cadenceIdemTTL is the TTL the poller uses for token-keyed dedup
+// reservations. It dominates Cadence's activity heartbeat/retry windows so
+// even long-running activities can survive a poller restart without losing
+// their dedup state.
+const cadenceIdemTTL = 24 * time.Hour
 
 type taskInfo struct {
 	Tenant     string
@@ -80,6 +93,7 @@ func main() {
 		bindingSems:   make(map[string]chan struct{}),
 		activation:    make(map[string]taskInfo),
 		heartbeatLast: make(map[string]time.Time),
+		idemStore:     idempotency.NewMemoryStore(nil),
 	}
 	if err := p.run(); err != nil {
 		panic(err)
@@ -212,8 +226,21 @@ func (p *poller) pollLoop(ctx context.Context, binding api.WorkerBinding, sem ch
 			continue
 		}
 
-		activationID := uuid.NewString()
 		taskHash := hashToken(task.TaskToken)
+		// Derive a sticky activation_id from the task token so a retried
+		// Cadence delivery reuses the same logical activation. We keep the
+		// legacy uuid format by hashing the token into a UUIDv5 namespace.
+		activationID := uuid.NewSHA1(uuid.NameSpaceOID, []byte("cadence:"+binding.Tenant+":"+taskHash)).String()
+		// Consult the dedup store before publishing — if a prior delivery
+		// of the same token already produced a terminal result, replay it
+		// to Cadence rather than re-running the function.
+		reserved, idemErr := p.idemStore.Reserve(ctx, taskHash, activationID, taskHash, cadenceIdemTTL)
+		if idemErr == nil && !reserved.Created && reserved.Record.Terminal {
+			p.replayCadenceResult(ctx, task.TaskToken, reserved.Record)
+			_ = p.store.DeleteCadenceTaskMapping(ctx, binding.Tenant, binding.Namespace, taskHash)
+			<-sem
+			continue
+		}
 		invocation := api.InvocationRequest{
 			ActivationID: activationID,
 			RequestID:    "req_" + uuid.NewString(),
@@ -285,6 +312,16 @@ func (p *poller) consumeResults(ctx context.Context) {
 			}
 		}()
 
+		// Persist the terminal result so a subsequent Cadence redelivery
+		// of the same task_token short-circuits to the cached completion
+		// (see pollLoop dedup check).
+		cached, _ := json.Marshal(cadenceCachedResult{Status: res.Status, Result: res.Result, Err: res.Error})
+		errMsg := ""
+		if res.Error != nil {
+			errMsg = res.Error.Message
+		}
+		_ = p.idemStore.Commit(ctx, info.TaskHash, info.TaskHash, cached, errMsg)
+
 		if res.Status == "success" {
 			payload, _ := json.Marshal(res.Result)
 			encoded := []byte(base64.StdEncoding.EncodeToString(payload))
@@ -305,6 +342,43 @@ func (p *poller) consumeResults(ctx context.Context) {
 		_ = p.store.DeleteCadenceTaskMapping(ctx, info.Tenant, info.Namespace, info.TaskHash)
 		return nil
 	})
+}
+
+// cadenceCachedResult is the payload stored in the dedup store after a
+// Cadence activity completes. A retried delivery reads this back and
+// responds to Cadence with the prior result instead of re-running the
+// function — see pollLoop.
+type cadenceCachedResult struct {
+	Status string                `json:"status"`
+	Result *api.FunctionResponse `json:"result,omitempty"`
+	Err    *api.InvocationError  `json:"error,omitempty"`
+}
+
+// replayCadenceResult sends a cached completion back to Cadence using the
+// supplied task token. It mirrors the logic in consumeResults but pulls the
+// status/result/error from the idempotency record persisted on the original
+// activation's success.
+func (p *poller) replayCadenceResult(ctx context.Context, taskToken string, rec idempotency.Record) {
+	var cached cadenceCachedResult
+	if err := json.Unmarshal(rec.Result, &cached); err != nil {
+		// If the cached payload is corrupt, fail closed: tell Cadence the
+		// activity failed so the workflow can decide whether to retry.
+		_ = p.client.RespondActivityFailed(ctx, taskToken, "dedup_cache_corrupt", []byte(err.Error()))
+		return
+	}
+	if cached.Status == "success" {
+		payload, _ := json.Marshal(cached.Result)
+		encoded := []byte(base64.StdEncoding.EncodeToString(payload))
+		_ = p.client.RespondActivityCompleted(ctx, taskToken, encoded)
+		return
+	}
+	reason := "error"
+	if cached.Status == "timeout" {
+		reason = "timeout"
+	}
+	details, _ := json.Marshal(cached.Err)
+	encoded := []byte(base64.StdEncoding.EncodeToString(details))
+	_ = p.client.RespondActivityFailed(ctx, taskToken, reason, encoded)
 }
 
 func (p *poller) consumeHeartbeats(ctx context.Context) {

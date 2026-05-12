@@ -38,10 +38,41 @@ type Kafka struct {
 	writers map[string]*kafka.Writer
 
 	newReaderFn func(topic, groupID string) kafkaReader
+
+	// dedup tracks consumer-side envelope IDs that have already been
+	// processed; when a producer emits a deterministic message-id (see
+	// DeterministicMessageID) and the codeQ broker redelivers it, the
+	// consumer detects the duplicate and skips the handler. A nil set
+	// disables dedup.
+	dedup    SeenSet
+	dedupTTL time.Duration
 }
 
+// dedupTTLDefault matches the docs/07-codeq-protocol.md guidance: keep
+// redelivery dedup state for one hour by default, which dominates the
+// at-least-once retry windows of codeQ/Kafka/Redpanda in v0.1.
+const dedupTTLDefault = time.Hour
+
 func NewKafka(brokers []string, topics Topics) *Kafka {
-	return &Kafka{brokers: brokers, topics: topics, writers: make(map[string]*kafka.Writer)}
+	return &Kafka{
+		brokers:  brokers,
+		topics:   topics,
+		writers:  make(map[string]*kafka.Writer),
+		dedup:    NewMemorySeenSet(nil),
+		dedupTTL: dedupTTLDefault,
+	}
+}
+
+// WithDedup replaces the SeenSet used to detect duplicate deliveries. Pass
+// a nil set to disable consumer-side dedup entirely (e.g. for tests that
+// need to observe a raw redelivery).
+func (k *Kafka) WithDedup(s SeenSet, ttl time.Duration) *Kafka {
+	if ttl <= 0 {
+		ttl = dedupTTLDefault
+	}
+	k.dedup = s
+	k.dedupTTL = ttl
+	return k
 }
 
 type kafkaReader interface {
@@ -79,13 +110,23 @@ func (k *Kafka) Close() error {
 }
 
 func (k *Kafka) Publish(ctx context.Context, topic, tenant, typ string, body any) error {
+	return k.publishWithID(ctx, topic, tenant, typ, "", body)
+}
+
+// publishWithID emits an envelope with an explicit id. Callers that have a
+// deterministic activation+seq tuple should derive the id via
+// DeterministicMessageID so the consumer collapses redeliveries.
+func (k *Kafka) publishWithID(ctx context.Context, topic, tenant, typ, id string, body any) error {
 	rawBody, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
+	if id == "" {
+		id = "msg_" + uuid.NewString()
+	}
 	env := Envelope{
 		Schema: "cs.envelope.v1",
-		ID:     "msg_" + uuid.NewString(),
+		ID:     id,
 		TSMS:   time.Now().UnixMilli(),
 		Tenant: tenant,
 		Type:   typ,
@@ -102,11 +143,13 @@ func (k *Kafka) Publish(ctx context.Context, topic, tenant, typ string, body any
 }
 
 func (k *Kafka) PublishInvocation(ctx context.Context, req api.InvocationRequest) error {
-	return k.Publish(ctx, k.topics.Invoke, req.Tenant, "InvocationRequest", req)
+	id := DeterministicMessageID(req.Tenant, req.ActivationID, 0)
+	return k.publishWithID(ctx, k.topics.Invoke, req.Tenant, "InvocationRequest", id, req)
 }
 
 func (k *Kafka) PublishResult(ctx context.Context, tenant string, result api.InvocationResult) error {
-	return k.Publish(ctx, k.topics.Results, tenant, "InvocationResult", result)
+	id := DeterministicMessageID(tenant, result.ActivationID, 1)
+	return k.publishWithID(ctx, k.topics.Results, tenant, "InvocationResult", id, result)
 }
 
 func (k *Kafka) PublishDLQInvoke(ctx context.Context, tenant string, req api.InvocationRequest) error {
@@ -161,6 +204,13 @@ func (k *Kafka) consume(ctx context.Context, topic, groupID string, handler func
 		}
 		var env Envelope
 		if err := json.Unmarshal(msg.Value, &env); err != nil {
+			_ = reader.CommitMessages(ctx, msg)
+			continue
+		}
+		// Drop redeliveries silently when the producer used a deterministic
+		// id and we have already processed this envelope. We still commit
+		// the offset so the broker stops re-sending.
+		if env.ID != "" && k.dedup != nil && !k.dedup.MarkSeen(env.ID, k.dedupTTL) {
 			_ = reader.CommitMessages(ctx, msg)
 			continue
 		}
