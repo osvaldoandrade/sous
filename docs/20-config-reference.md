@@ -82,9 +82,18 @@ cs_http_gateway:
     max_header_bytes: 65536
     max_query_bytes: 16384
   rate_limits:
-    tenant_rps: 200
-    function_rps: 20
+    tenant_rps: 200    # steady-state per-tenant token rate
+    tenant_burst: 200  # bucket capacity (defaults to tenant_rps)
+    function_rps: 20   # per-function token rate (advisory; future work)
 ```
+
+`rate_limits.tenant_rps` configures the in-process per-tenant token-bucket
+limiter introduced by E1.04. When the bucket is empty the gateway returns
+`429 CS_RATE_LIMITED` with a `Retry-After` header derived from the time
+until the next token is available. `tenant_burst` overrides bucket capacity;
+when zero or omitted it tracks `tenant_rps`. This is a Layer-1 limit — see
+`docs/26-capacity-and-limits.md` and `docs/18-roadmap.md` for cluster-wide
+work.
 
 ## cs-invoker-pool
 
@@ -94,7 +103,7 @@ cs_invoker_pool:
     addr: :8082
   workers:
     threads: 32
-    max_inflight: 2048
+    max_inflight: 2048      # global pool capacity (across all tenants)
   cache:
     bundles_max: 1000
     bytes_max: 536870912
@@ -103,6 +112,20 @@ cs_invoker_pool:
     max_error_bytes: 65536
     max_log_bytes: 1048576
 ```
+
+`workers.max_inflight` is the global concurrent-activation cap inside a
+single cs-invoker-pool replica.
+
+In addition, E1.04 introduces a **per-tenant** inflight cap enforced inside
+the invoker-pool. The cap defaults to `64`
+(`internal/limits.DefaultTenantMaxInflight`) and can be overridden at
+process start with the `CS_INVOKER_TENANT_INFLIGHT` environment variable
+until a dedicated YAML key is added. Behaviour on saturation:
+
+- Synchronous (HTTP-triggered) invocations return
+  `429 CS_TENANT_INFLIGHT_LIMIT` so the gateway can surface a typed error.
+- Queued (codeQ / schedule / cadence) invocations wait until a slot frees
+  — no message is lost, draining happens in FIFO order.
 
 ## cs-scheduler
 

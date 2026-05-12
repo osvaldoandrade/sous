@@ -34,6 +34,40 @@ remains uniform across `cs-control`, `cs-http-gateway`, `cs-invoker-pool`,
 and `cs-cadence-poller`. See `docs/21-errors.md` for the error-code → HTTP
 status mapping.
 
+### Per-tenant rate-limit contract (E1.04)
+
+`cs-http-gateway` runs an in-process token-bucket limiter per tenant.
+The limiter is consulted on every invoke request (`/v1/web/{tenant}/...`)
+and has the following contract:
+
+- **Capacity**: `tenant_burst` tokens. When omitted, `tenant_burst` tracks
+  `tenant_rps` (i.e. a 1-second burst).
+- **Refill rate**: `tenant_rps` tokens per second, smoothly accumulated by
+  elapsed wall-clock time.
+- **Steady state**: requests at or below `tenant_rps` always pass.
+- **Burst**: up to `tenant_burst` requests can arrive in the same instant
+  and all pass; the (N+1)-th in-instant request is rejected.
+- **Rejection envelope**:
+  - HTTP status `429 Too Many Requests`
+  - Error code `CS_RATE_LIMITED`
+  - `Retry-After` header (seconds, ceiling of time-until-next-token, >= 1)
+- **Memory**: a single map keyed by tenant; entries idle for >10 minutes
+  are opportunistically evicted on the next call to keep the map bounded.
+- **Scope**: in-process / per-replica. Cluster-wide enforcement is tracked
+  in `docs/18-roadmap.md`.
+
+`cs-invoker-pool` enforces a complementary **per-tenant inflight semaphore**
+with capacity `internal/limits.DefaultTenantMaxInflight` (default 64,
+overridable via the `CS_INVOKER_TENANT_INFLIGHT` env var):
+
+- Synchronous (HTTP-triggered) invocations whose tenant is at capacity
+  return `429 CS_TENANT_INFLIGHT_LIMIT` immediately, so the caller can
+  retry or shed load.
+- Queued (codeQ / schedule / cadence) invocations wait inside the worker
+  until a slot frees. No message is dropped.
+- The semaphore is per-tenant; a single tenant cannot exhaust the global
+  worker pool for other tenants.
+
 ## 2. Invoker throughput model
 
 Define inputs:

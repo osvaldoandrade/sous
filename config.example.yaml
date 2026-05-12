@@ -68,6 +68,9 @@ cs_http_gateway:
     max_header_bytes: 65536
     max_query_bytes: 16384
   rate_limits:
+    # E1.04: per-tenant token bucket. When the bucket is empty the gateway
+    # responds 429 CS_RATE_LIMITED with a Retry-After header. tenant_burst
+    # defaults to tenant_rps when omitted.
     tenant_rps: 200
     function_rps: 20
 
@@ -75,6 +78,10 @@ cs_invoker_pool:
   http:
     addr: :8082
   workers:
+    # E1.04: max_inflight is the global concurrency cap inside one replica.
+    # The per-tenant cap is fixed at internal/limits.DefaultTenantMaxInflight
+    # (64) and can be overridden at process start with the env var
+    # CS_INVOKER_TENANT_INFLIGHT until a dedicated YAML key is added.
     threads: 32
     max_inflight: 2048
   cache:
