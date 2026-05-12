@@ -134,6 +134,17 @@ type Config struct {
 			MaxErrorBytes  int `yaml:"max_error_bytes"`
 			MaxLogBytes    int `yaml:"max_log_bytes"`
 		} `yaml:"limits"`
+		// Retry holds the operator-wide default RetryPolicy applied to
+		// async invocations whose trigger envelope does not embed an
+		// explicit policy. See docs/02-requirements.md "Retry & DLQ".
+		Retry struct {
+			MaxAttempts     int      `yaml:"max_attempts"`
+			BaseMs          int64    `yaml:"base_ms"`
+			MaxMs           int64    `yaml:"max_ms"`
+			JitterPct       int      `yaml:"jitter_pct"`
+			RetryableErrors []string `yaml:"retryable_errors"`
+			DLQTopic        string   `yaml:"dlq_topic"`
+		} `yaml:"retry"`
 	} `yaml:"cs_invoker_pool"`
 
 	CSScheduler struct {

@@ -159,6 +159,25 @@ func (k *Kafka) PublishDLQInvoke(ctx context.Context, tenant string, req api.Inv
 	return k.Publish(ctx, k.topics.DLQInvoke, tenant, "InvocationRequest", req)
 }
 
+// PublishDLQInvocationEnvelope publishes a typed api.DLQEnvelope to the
+// configured DLQ topic. The envelope carries the original payload plus the
+// retry history (see docs/07-codeq-protocol.md "Retry & DLQ"); cs-invoker-pool
+// uses this method on retry exhaustion. An override topic is honored when
+// non-empty, otherwise the platform-wide cs.dlq.invoke is used.
+//
+// The consumer side of this topic is owned by a future worker (DLQ replay
+// tooling); this helper only produces.
+func (k *Kafka) PublishDLQInvocationEnvelope(ctx context.Context, tenant, overrideTopic string, envelope api.DLQEnvelope) error {
+	topic := overrideTopic
+	if topic == "" {
+		topic = k.topics.DLQInvoke
+	}
+	if topic == "" {
+		return nil
+	}
+	return k.Publish(ctx, topic, tenant, "DLQInvocation", envelope)
+}
+
 func (k *Kafka) PublishDLQResult(ctx context.Context, tenant string, result api.InvocationResult) error {
 	if k.topics.DLQResult == "" {
 		return nil

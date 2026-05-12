@@ -71,6 +71,51 @@ lifecycle handler in `cmd/cs-control` must update both.
 - The system must support asynchronous invocation via codeQ.
 - The system must support interval schedules in seconds.
 - The system must support Cadence Activity execution.
+- Async triggers (schedule, subscription, cadence) must apply a
+  trigger-level retry policy and fall back to a DLQ when the retry budget
+  is exhausted, per the "Retry & DLQ" subsection below.
+
+### Retry & DLQ
+
+Async invocations are first-class re-tryable units. The platform encodes the
+contract as a `RetryPolicy` attached to each trigger
+(`internal/api.RetryPolicy`), with these defaults:
+
+| Field             | Default | Semantics                                              |
+|-------------------|---------|--------------------------------------------------------|
+| `max_attempts`    | `1`     | Inclusive total attempts. `1` disables retry.          |
+| `base_ms`         | `500`   | Initial backoff in milliseconds.                       |
+| `max_ms`          | `30000` | Upper bound on a single backoff sleep.                 |
+| `jitter_pct`      | `20`    | Symmetric jitter band ±%, applied to each backoff.     |
+| `retryable_errors`| see below | Allow-list of error codes that trigger a retry.       |
+| `dlq_topic`       | `""`    | Optional override; default is `cs.dlq.invoke`.         |
+
+Default `retryable_errors`: `CS_RUNTIME_TIMEOUT`,
+`CS_RUNTIME_DEPENDENCY_ERROR`, `CS_RATE_LIMITED`, plus the runtime-friendly
+labels `Timeout` so both shapes are honored. Hard-deny (never retried even
+when listed): `CS_VALIDATION_*`, `CS_NOT_FOUND`, `CS_IDEMPOTENCY_CONFLICT`.
+
+Backoff is computed as `delay = min(MaxMs, BaseMs * 2^(attempt-1))` with full
+symmetric jitter `±JitterPct%`. No third-party rate-limit dependency is used.
+
+HTTP triggers are synchronous and intentionally NOT covered — the calling
+client owns retry. Schedule, subscription and cadence triggers are queued and
+the platform owns the retry contract for them.
+
+On exhaustion, `cs-invoker-pool` publishes an `api.DLQEnvelope`
+(`cs.dlq.invoke.v1`) to the configured DLQ topic carrying:
+
+- `original_payload` — the unmodified `InvocationRequest`.
+- `last_error_code`, `last_error_message` — the terminal failure.
+- `attempt_count`, `first_seen_at_ms`, `last_seen_at_ms` — observability.
+- `attempts[]` — per-attempt history `{attempt, started_at_ms, duration_ms, error_code, error_message}`.
+
+The DLQ envelope shape is documented in `docs/07-codeq-protocol.md` "Retry &
+DLQ". Counters emitted (label: `trigger`):
+
+- `cs_invoke_retry_total` — incremented on each retry decision.
+- `cs_invoke_retry_success_total` — incremented when an attempt > 1 succeeds.
+- `cs_invoke_dlq_total` — incremented on DLQ publish.
 
 ### Activations
 

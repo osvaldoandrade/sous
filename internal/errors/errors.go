@@ -57,6 +57,14 @@ const (
 	// references a codec name not registered with internal/cadence. It
 	// carries HTTP 400 semantics via the CS_VALIDATION_ prefix.
 	CSValidationUnsupportedCodec Code = "CS_VALIDATION_UNSUPPORTED_CODEC"
+	// CSRetryExhausted is surfaced when a trigger-level RetryPolicy has
+	// consumed all attempts for an async invocation and the last result
+	// still carries a retryable error. The original payload is then
+	// forwarded to the DLQ topic and the metric cs_invoke_dlq_total{trigger}
+	// is incremented. Carries HTTP 502 semantics: the platform exhausted
+	// its retry budget against an unreachable downstream. See
+	// docs/02-requirements.md "Retry & DLQ" and docs/07-codeq-protocol.md.
+	CSRetryExhausted Code = "CS_RETRY_EXHAUSTED"
 )
 
 type CSError struct {
@@ -115,6 +123,8 @@ func StatusCode(code Code) int {
 		return http.StatusGatewayTimeout
 	case CSRuntimeUnsupported:
 		return http.StatusBadRequest // 400
+	case CSRetryExhausted:
+		return http.StatusBadGateway // 502
 	}
 	switch {
 	case strings.HasPrefix(string(code), "CS_AUTHN_"):

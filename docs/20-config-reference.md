@@ -127,6 +127,34 @@ cs_invoker_pool:
 `workers.max_inflight` is the global concurrent-activation cap inside a
 single cs-invoker-pool replica.
 
+#### Default retry policy (E4.03)
+
+```yaml
+cs_invoker_pool:
+  retry:
+    # Trigger-level defaults applied when an async invocation envelope
+    # does not embed an explicit RetryPolicy. See docs/02-requirements.md
+    # "Retry & DLQ" for semantics.
+    max_attempts: 1          # 1 = no retry (matches pre-E4.03 behaviour)
+    base_ms: 500
+    max_ms: 30000
+    jitter_pct: 20
+    retryable_errors:
+      - CS_RUNTIME_TIMEOUT
+      - CS_RUNTIME_DEPENDENCY_ERROR
+      - CS_RATE_LIMITED
+      - Timeout
+    # Optional override for the per-tenant DLQ topic; empty falls back to
+    # the platform-default cs.dlq.invoke.
+    dlq_topic: ""
+```
+
+The policy lives on the trigger envelope at
+`trigger.source.retry_policy`; this section documents the defaults a
+producer applies when the operator does not set one explicitly. Tenants who
+want a different policy embed the same block when creating their
+schedule / subscription / cadence binding.
+
 In addition, E1.04 introduces a **per-tenant** inflight cap enforced inside
 the invoker-pool. The cap defaults to `64`
 (`internal/limits.DefaultTenantMaxInflight`) and can be overridden at
