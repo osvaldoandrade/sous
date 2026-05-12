@@ -275,6 +275,15 @@ type WorkerBinding struct {
 		MaxInflightTasks int `json:"max_inflight_tasks"`
 	} `json:"limits"`
 	Enabled bool `json:"enabled"`
+	// InputCodec selects the codec used to decode Activity input bytes
+	// before the function sees them. Empty defaults to JSON for backward
+	// compatibility — bindings created before E8.02 keep behaving as if
+	// "json" was set. Recognised values: "json", "msgpack", "raw".
+	InputCodec string `json:"input_codec,omitempty"`
+	// OutputCodec selects the codec used to encode the function's
+	// FunctionResponse before shipping it to RespondActivityTaskCompleted.
+	// Empty defaults to JSON. Recognised values: "json", "msgpack", "raw".
+	OutputCodec string `json:"output_codec,omitempty"`
 }
 
 type ActivationRecord struct {
@@ -367,6 +376,12 @@ type CreateWorkerBindingRequest struct {
 	Limits struct {
 		MaxInflightTasks int `json:"max_inflight_tasks"`
 	} `json:"limits"`
+	// InputCodec / OutputCodec mirror WorkerBinding fields and let a
+	// caller pin per-tasklist payload codecs at binding-create time.
+	// Validated against the codec registry — unknown values are rejected
+	// with CS_VALIDATION_UNSUPPORTED_CODEC.
+	InputCodec  string `json:"input_codec,omitempty"`
+	OutputCodec string `json:"output_codec,omitempty"`
 }
 
 func ValidateTenant(v string) error {

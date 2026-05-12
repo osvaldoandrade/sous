@@ -17,6 +17,7 @@ func TestStatusCodeMappings(t *testing.T) {
 		{CSValidationManifest, 400},
 		{CSValidationBundle, 400},
 		{CSValidationName, 400},
+		{CSValidationUnsupportedCodec, 400},
 		{CSBundleTooLarge, 413},
 		{CSBodyTooLarge, 413},
 		{CSResultTooLarge, 413},

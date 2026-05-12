@@ -53,6 +53,10 @@ const (
 	// that has no registered handler in the control plane. Carries HTTP 400
 	// semantics. See docs/04-api-rest.md and docs/08-runtime-cs-js.md.
 	CSRuntimeUnsupported Code = "CS_RUNTIME_UNSUPPORTED"
+	// CSValidationUnsupportedCodec is returned when a WorkerBinding
+	// references a codec name not registered with internal/cadence. It
+	// carries HTTP 400 semantics via the CS_VALIDATION_ prefix.
+	CSValidationUnsupportedCodec Code = "CS_VALIDATION_UNSUPPORTED_CODEC"
 )
 
 type CSError struct {
