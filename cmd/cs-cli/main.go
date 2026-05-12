@@ -129,6 +129,8 @@ func handleFunction(args []string) error {
 		return errors.New("usage: cs fn alias set <name> <alias> --version <n>")
 	case "invoke":
 		return fnInvoke(args[1:])
+	case "logs":
+		return fnLogs(args[1:])
 	default:
 		return fmt.Errorf("unknown fn subcommand: %s", args[0])
 	}
