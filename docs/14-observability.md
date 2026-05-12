@@ -325,3 +325,84 @@ the expected Prometheus scrape configuration are documented in
 [`deploy/observability/README.md`](../deploy/observability/README.md). The
 Makefile target `make dashboards-validate` JSON-parses every dashboard under
 `deploy/observability/` and is wired into CI alongside `make slo-validate`.
+
+## Audit
+
+`cs-control` emits a structured audit event for every successful
+control-plane mutation (create function, soft-delete, draft upload,
+publish version, set alias, create/delete schedule, register/delete
+cadence worker binding). Events are emitted **after** the KV mutation
+commits — phantom mutations are never logged.
+
+### Event shape
+
+```json
+{
+  "schema_version": "1",
+  "event_id": "evt_8b2…",
+  "ts": "2026-05-12T18:04:33.124Z",
+  "tenant": "t_acme",
+  "actor": "u_42",
+  "action": "function.publish",
+  "resource": "fn://t_acme/orders/charge@v3",
+  "outcome": "success",
+  "request_id": "req_2…",
+  "detail": {"sha256": "…", "alias": "prod"}
+}
+```
+
+- `schema_version` is the wire-schema version. It evolves additively;
+  consumers must accept unknown fields.
+- `action` is the dotted name of the mutation
+  (`function.create`, `function.delete`, `function.draft.upload`,
+  `function.publish`, `function.alias.set`, `schedule.create`,
+  `schedule.delete`, `cadence.worker.create`,
+  `cadence.worker.delete`).
+- `resource` is a URN-style identifier
+  (`fn://<tenant>/<namespace>/<name>[@v<version>]`,
+  `schedule://<tenant>/<namespace>/<name>`,
+  `cadence://<tenant>/<namespace>/<name>`).
+- `outcome` is one of `success`, `denied`, `error`. Mutation handlers
+  only emit `success` today; the failure outcomes are reserved for
+  future handler instrumentation and the schema is stable.
+- `detail` is an open map of allowlisted attributes. Secret material
+  and bundle bytes are never written here.
+
+### Sinks
+
+Three sinks ship with the binary, selected via `plugins.audit.sink`:
+
+- `stdout` (default) — one JSON line per event to stdout. Best for
+  development and Kubernetes pod logs.
+- `codeq` — publish each event as an `AuditEvent` envelope on the
+  topic `<topic_prefix>.<tenant>` (`topic_prefix` defaults to
+  `cs.audit`).
+- `webhook` — POST each event to `plugins.audit.webhook_url` with an
+  HMAC-SHA256 signature in the `X-CS-Audit-Signature` header (hex
+  encoded, keyed by `plugins.audit.hmac_secret`). Compatible with
+  Splunk HEC, Datadog logs, and any SIEM that accepts signed JSON.
+
+Sink failures do not roll back the control-plane mutation (the kv
+commit is already durable). The recorder logs a `SinkLag` warning
+through the structured logger so operators can investigate.
+
+### Replay endpoint
+
+`GET /v1/tenants/{tenant}/audit?since=&actor=&action=&limit=`
+
+Returns the recent audit history for the requesting tenant. Backed by
+a per-tenant ring buffer in KVRocks (TTL tracks
+`cs_control.limits.activation_ttl_seconds`, default 1000 entries).
+For long-term retention, subscribe to the configured codeq topic or
+forward the webhook to your SIEM.
+
+The endpoint enforces the `cs:audit:read` Tikti action and rejects
+cross-tenant requests at the existing authorize() layer
+(`CS_AUTHZ_RESOURCE_MISMATCH`).
+
+Query parameters:
+
+- `since` — Unix milliseconds; only events at or after this timestamp.
+- `actor` — Tikti `sub` exact match.
+- `action` — exact dotted action name.
+- `limit` — page size, default 100, cap 500.
