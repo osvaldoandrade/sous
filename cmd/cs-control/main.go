@@ -91,6 +91,7 @@ func (s *server) serve() error {
 		pr.Post("/v1/tenants/{tenant}/namespaces/{namespace}/functions/{name}:invoke", s.invokeAPI)
 		pr.Get("/v1/tenants/{tenant}/activations/{activation_id}", s.getActivation)
 		pr.Get("/v1/tenants/{tenant}/activations/{activation_id}/logs", s.getActivationLogs)
+		pr.Get("/v1/tenants/{tenant}/activations/{activation_id}/tree", s.getActivationTree)
 		pr.Post("/v1/tenants/{tenant}/namespaces/{namespace}/schedules", s.createSchedule)
 		pr.Delete("/v1/tenants/{tenant}/namespaces/{namespace}/schedules/{name}", s.deleteSchedule)
 		pr.Post("/v1/tenants/{tenant}/namespaces/{namespace}/cadence/workers", s.createWorkerBinding)

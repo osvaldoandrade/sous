@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -359,6 +360,49 @@ func (s *Store) GetActivation(ctx context.Context, tenant, activationID string) 
 		return out, err
 	}
 	return out, nil
+}
+
+// AppendActivationChild records that childID was triggered by parentID for
+// the given tenant. The list backs the agent decision-tree endpoint
+// (GET /v1/tenants/{tenant}/activations/{id}/tree) so the control plane can
+// reconstruct the call graph without scanning every activation key. The TTL
+// matches the parent activation TTL so the index expires alongside the
+// activation record itself.
+func (s *Store) AppendActivationChild(ctx context.Context, tenant, parentID, childID string, ttl time.Duration) error {
+	if parentID == "" || childID == "" {
+		return nil
+	}
+	key := ActivationChildrenKey(tenant, parentID)
+	pipe := s.client.TxPipeline()
+	pipe.LPush(ctx, key, childID)
+	if ttl > 0 {
+		pipe.Expire(ctx, key, ttl)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return cserrors.Wrap(cserrors.CSKVWriteFailed, "failed to append activation child", err)
+	}
+	return nil
+}
+
+// GetActivationChildren returns the activation IDs that were triggered by the
+// named parent activation in insertion order (oldest first). Missing keys
+// yield a nil slice with no error.
+func (s *Store) GetActivationChildren(ctx context.Context, tenant, parentID string) ([]string, error) {
+	if parentID == "" {
+		return nil, nil
+	}
+	items, err := s.client.LRange(ctx, ActivationChildrenKey(tenant, parentID), 0, -1).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, nil
+		}
+		return nil, cserrors.Wrap(cserrors.CSKVReadFailed, "failed to read activation children", err)
+	}
+	// LPUSH prepends, so the head of the list is the most recent. Reverse
+	// so callers see oldest-first traversal — the natural order for a
+	// "what happened next" decision tree.
+	slices.Reverse(items)
+	return items, nil
 }
 
 // enforceResultCap truncates an activation's result body to the configured

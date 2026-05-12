@@ -174,13 +174,26 @@ func (s *server) invokeHTTP(w http.ResponseWriter, r *http.Request) {
 		"isBase64Encoded": true,
 	}
 
+	triggerSource := map[string]any{
+		"path":        r.URL.Path,
+		"traceparent": r.Header.Get("traceparent"),
+	}
+	// Propagate the calling activation when this invoke originated from
+	// another cs function. The runtime egress shim stamps
+	// X-CS-Parent-Activation on outbound HTTP calls; we forward the value
+	// onto the new InvocationRequest so the invoker can persist
+	// ParentActivationID/RootActivationID and the control plane can later
+	// materialize an agent decision tree. See docs/14-observability.md.
+	if parent := strings.TrimSpace(r.Header.Get(observability.ParentActivationHeader)); parent != "" {
+		triggerSource["parent_activation_id"] = parent
+	}
 	invocation := api.InvocationRequest{
 		ActivationID: activationID,
 		RequestID:    reqID,
 		Tenant:       tenant,
 		Namespace:    namespace,
 		Ref:          api.FunctionRef{Function: function, Alias: alias, Version: resolvedVersion},
-		Trigger:      api.Trigger{Type: "http", Source: map[string]any{"path": r.URL.Path, "traceparent": r.Header.Get("traceparent")}},
+		Trigger:      api.Trigger{Type: "http", Source: triggerSource},
 		Principal:    api.Principal{Sub: principal.Sub, Roles: principal.Roles},
 		DeadlineMS:   deadline,
 		Event:        event,

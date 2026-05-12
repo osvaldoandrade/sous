@@ -44,6 +44,9 @@ type FakePersistence struct {
 	ListLogChunksFn  func(context.Context, string, string, int64, int64) ([]string, int64, error)
 	LogTruncatedFn   func(context.Context, string, string) (bool, error)
 
+	AppendActivationChildFn func(context.Context, string, string, string, time.Duration) error
+	GetActivationChildrenFn func(context.Context, string, string) ([]string, error)
+
 	PutScheduleFn           func(context.Context, api.ScheduleRecord) error
 	ListSchedulesFn         func(context.Context, string, string) ([]api.ScheduleRecord, error)
 	ListAllSchedulesFn      func(context.Context) ([]api.ScheduleRecord, error)
@@ -243,6 +246,20 @@ func (f *FakePersistence) LogTruncated(ctx context.Context, tenant, activationID
 		return f.LogTruncatedFn(ctx, tenant, activationID)
 	}
 	return false, nil
+}
+
+func (f *FakePersistence) AppendActivationChild(ctx context.Context, tenant, parentID, childID string, ttl time.Duration) error {
+	if f.AppendActivationChildFn != nil {
+		return f.AppendActivationChildFn(ctx, tenant, parentID, childID, ttl)
+	}
+	return nil
+}
+
+func (f *FakePersistence) GetActivationChildren(ctx context.Context, tenant, parentID string) ([]string, error) {
+	if f.GetActivationChildrenFn != nil {
+		return f.GetActivationChildrenFn(ctx, tenant, parentID)
+	}
+	return nil, nil
 }
 
 func (f *FakePersistence) PutSchedule(ctx context.Context, rec api.ScheduleRecord) error {
