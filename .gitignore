@@ -3,3 +3,5 @@ bin/
 __pycache__/
 dist/
 npm/**/node_modules/
+# Agent worktrees managed by the harness; never tracked.
+.claude/
