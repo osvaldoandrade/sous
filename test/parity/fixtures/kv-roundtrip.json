@@ -1,0 +1,30 @@
+{
+  "name": "kv-roundtrip",
+  "description": "Writes and reads back a value through the host KV binding.",
+  "manifest": {
+    "schema": "cs.function.script.v1",
+    "runtime": "cs-js",
+    "entry": "function.js",
+    "handler": "default",
+    "limits": {"timeoutMs": 2000, "memoryMb": 64, "maxConcurrency": 1},
+    "capabilities": {
+      "kv":    {"prefixes": ["ctr:"], "ops": ["get", "set", "del"]},
+      "codeq": {"publishTopics": ["jobs.*"]},
+      "http":  {"allowHosts": ["example.com"], "timeoutMs": 1500}
+    }
+  },
+  "files": {
+    "cs-js": {
+      "function.js": "export default async function handle(event, ctx) { cs.kv.set(\"ctr:hits\", event.n); const v = cs.kv.get(\"ctr:hits\"); return { statusCode: 200, body: String(v) } }"
+    }
+  },
+  "trigger": {"type": "api", "source": {}},
+  "event": {"n": 42},
+  "expected": {
+    "status": "success",
+    "responseShape": {
+      "statusCode": 200,
+      "body": "42"
+    }
+  }
+}

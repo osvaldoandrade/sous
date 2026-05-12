@@ -1,0 +1,27 @@
+{
+  "name": "capability-denied",
+  "description": "Calls a KV key outside the manifest's allow-prefix; runtime must surface CS_RUNTIME_CAPABILITY_DENIED.",
+  "manifest": {
+    "schema": "cs.function.script.v1",
+    "runtime": "cs-js",
+    "entry": "function.js",
+    "handler": "default",
+    "limits": {"timeoutMs": 2000, "memoryMb": 64, "maxConcurrency": 1},
+    "capabilities": {
+      "kv":    {"prefixes": ["ctr:"], "ops": ["get"]},
+      "codeq": {"publishTopics": ["jobs.*"]},
+      "http":  {"allowHosts": ["example.com"], "timeoutMs": 1500}
+    }
+  },
+  "files": {
+    "cs-js": {
+      "function.js": "export default async function handle(event, ctx) { cs.kv.get(\"forbidden:key\"); return { statusCode: 200, body: \"ok\" } }"
+    }
+  },
+  "trigger": {"type": "api", "source": {}},
+  "event": {},
+  "expected": {
+    "status": "error",
+    "errorSubstrings": ["kv prefix not allowed"]
+  }
+}
