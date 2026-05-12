@@ -220,6 +220,34 @@ func (s *Store) GetVersion(ctx context.Context, tenant, namespace, function stri
 	return meta, bundle, nil
 }
 
+// PutSBOM persists the CycloneDX SBOM bytes generated at publish time
+// for the given function version. The value is the canonical JSON
+// document; callers should pass the byte output of internal/sbom.Build.
+// No TTL is applied: SBOMs share their lifecycle with the version
+// record they describe (see docs/15-security.md "Supply chain
+// artifacts").
+func (s *Store) PutSBOM(ctx context.Context, tenant, namespace, function string, version int64, sbom []byte) error {
+	if err := s.client.Set(ctx, SBOMKey(tenant, namespace, function, version), sbom, 0).Err(); err != nil {
+		return cserrors.Wrap(cserrors.CSKVWriteFailed, "failed to write sbom", err)
+	}
+	return nil
+}
+
+// GetSBOM returns the stored CycloneDX SBOM for a version. A missing
+// key surfaces as a typed CS_VALIDATION_FAILED with "sbom not found" so
+// callers can map it to HTTP 404 the same way they handle missing
+// versions.
+func (s *Store) GetSBOM(ctx context.Context, tenant, namespace, function string, version int64) ([]byte, error) {
+	raw, err := s.client.Get(ctx, SBOMKey(tenant, namespace, function, version)).Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, cserrors.New(cserrors.CSValidationFailed, "sbom not found")
+		}
+		return nil, cserrors.Wrap(cserrors.CSKVReadFailed, "failed to read sbom", err)
+	}
+	return raw, nil
+}
+
 func (s *Store) GetLatestVersion(ctx context.Context, tenant, namespace, function string) (api.VersionRecord, error) {
 	var meta api.VersionRecord
 	latest, err := s.client.Get(ctx, VersionSeqKey(tenant, namespace, function)).Int64()

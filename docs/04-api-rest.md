@@ -156,6 +156,42 @@ Response `201`:
 
 The server rejects publish if the draft has expired.
 
+The publish path also generates a CycloneDX 1.5 SBOM for the new
+version (see the **SBOM** section below); a publish whose SBOM cannot
+be produced or persisted fails so regulated tenants never observe a
+version without supply-chain metadata.
+
+## SBOM
+
+`GET /v1/tenants/{tenant}/namespaces/{namespace}/functions/{name}/versions/{version}/sbom`
+
+Returns the CycloneDX 1.5 JSON Software Bill of Materials produced at
+publish time for the given version. The SBOM lists the runtime, every
+bundled file (with its SHA-256), and — once E5.01 lands — every
+declared dependency with its SRI hash and source URL. The bundle digest
+and signing identity (when present) appear as `cs:bundle.sha256` and
+`cs:signing.*` properties on the document metadata.
+
+Response `200`:
+
+- `Content-Type: application/vnd.cyclonedx+json; version=1.5`
+- Body: the canonical CycloneDX 1.5 document. Replaying publish for the
+  same canonical bundle yields a byte-identical SBOM (deterministic
+  serial number derived from the bundle SHA-256, sorted components).
+
+Errors:
+
+- `400 CS_VALIDATION_FAILED` with message `sbom not found` when the
+  version exists but no SBOM has been persisted, or when the version
+  identifier is non-numeric. Versions published before E5.03 must be
+  re-published to backfill their SBOM.
+- `403 CS_AUTHZ_DENIED` when the caller lacks `cs:function:read`.
+
+The endpoint reuses the existing `cs:function:read` role check so the
+same callers that can introspect a version metadata record can fetch
+its SBOM. See `docs/15-security.md` "Supply chain artifacts" for the
+trust model and `docs/25-schemas.md` for the CycloneDX 1.5 schema link.
+
 ## Aliases
 
 ### Set alias

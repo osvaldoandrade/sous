@@ -87,6 +87,7 @@ func (s *server) serve() error {
 		pr.Delete("/v1/tenants/{tenant}/namespaces/{namespace}/functions/{name}", s.deleteFunction)
 		pr.Put("/v1/tenants/{tenant}/namespaces/{namespace}/functions/{name}/draft", s.uploadDraft)
 		pr.Post("/v1/tenants/{tenant}/namespaces/{namespace}/functions/{name}/versions", s.publishVersion)
+		pr.Get("/v1/tenants/{tenant}/namespaces/{namespace}/functions/{name}/versions/{version}/sbom", s.getVersionSBOM)
 		pr.Put("/v1/tenants/{tenant}/namespaces/{namespace}/functions/{name}/aliases/{alias}", s.setAlias)
 		pr.Get("/v1/tenants/{tenant}/namespaces/{namespace}/functions/{name}/aliases", s.listAliases)
 		pr.Post("/v1/tenants/{tenant}/namespaces/{namespace}/functions/{name}:invoke", s.invokeAPI)
@@ -393,6 +394,15 @@ func (s *server) publishVersion(w http.ResponseWriter, r *http.Request) {
 		PublishedAtMS: now,
 	}, bundleBytes, req.Alias)
 	if err != nil {
+		cserrors.WriteHTTP(w, err, requestID(r))
+		return
+	}
+	// Emit the CycloneDX 1.5 SBOM next to the version record. We fail
+	// publish on SBOM errors rather than silently storing a version
+	// without supply-chain metadata; see docs/15-security.md "Supply
+	// chain artifacts" and E5.03 (#15). The already-decoded file map
+	// is reused so we don't re-extract the bundle tar.
+	if err := emitSBOMOnPublish(r.Context(), s.store, tenant, namespace, name, version, manifest, decoded, len(bundleBytes), sha); err != nil {
 		cserrors.WriteHTTP(w, err, requestID(r))
 		return
 	}
