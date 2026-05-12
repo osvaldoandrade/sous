@@ -78,27 +78,17 @@ func main() {
 	defer broker.Close()
 
 	inv := &invoker{
-<<<<<<< HEAD
-		cfg:            cfg,
-		store:          store,
-		broker:         broker,
-		logger:         observability.NewLogger("cs-invoker-pool"),
-		inflight:       make(chan struct{}, max(1, cfg.CSInvokerPool.Workers.MaxInflight)),
-		tenantInflight: newTenantInflight(tenantInflightCapacity()),
-		samplers:       newSamplerCache(),
-		clock:          time.Now,
-		versionSems:    make(map[string]chan struct{}),
-=======
 		cfg:                cfg,
 		store:              store,
 		broker:             broker,
 		logger:             observability.NewLogger("cs-invoker-pool"),
 		inflight:           make(chan struct{}, max(1, cfg.CSInvokerPool.Workers.MaxInflight)),
 		tenantInflight:     newTenantInflight(tenantInflightCapacity()),
+		samplers:           newSamplerCache(),
+		clock:              time.Now,
 		versionSems:        make(map[string]chan struct{}),
 		retryMetrics:       &retryMetrics{},
 		defaultRetryPolicy: defaultRetryPolicyFromConfig(cfg),
->>>>>>> 813f217 (E4.03: trigger retry policy + DLQ on exhaustion)
 	}
 	inv.runner = runtime.NewRunner(runtimeKV{store: store}, runtimePublisher{broker: broker}, cfg.CSInvokerPool.Limits.MaxResultBytes, cfg.CSInvokerPool.Limits.MaxErrorBytes, cfg.CSInvokerPool.Limits.MaxLogBytes)
 
@@ -259,7 +249,6 @@ func (i *invoker) executeOnce(ctx context.Context, env messaging.Envelope, req a
 		ResolvedVersion: version,
 	}
 	actTTL := time.Duration(i.cfg.CSControl.Limits.ActTTLSeconds) * time.Second
-<<<<<<< HEAD
 
 	// Stamp parent/root activation IDs for agent decision-tree tracing (E7.01).
 	// When the trigger carries parent_activation_id (set by the gateway after
@@ -280,7 +269,7 @@ func (i *invoker) executeOnce(ctx context.Context, env messaging.Envelope, req a
 	activation.SamplingDecision = initialDecision.Reason
 	if initialDecision.PersistFull || initialDecision.Skeleton {
 		if err := i.store.PutActivationRunning(ctx, activation, actTTL); err != nil {
-			return err
+			return api.InvocationResult{}, err
 		}
 	}
 	if activation.ParentActivationID != "" {
@@ -289,10 +278,6 @@ func (i *invoker) executeOnce(ctx context.Context, env messaging.Envelope, req a
 			// continue rather than failing the invocation.
 			i.logger.Warn(ctx, "failed to append activation child: "+err.Error())
 		}
-=======
-	if err := i.store.PutActivationRunning(ctx, activation, actTTL); err != nil {
-		return api.InvocationResult{}, err
->>>>>>> 813f217 (E4.03: trigger retry policy + DLQ on exhaustion)
 	}
 
 	// Tag the runtime context with the current activation ID so the cs-js
@@ -327,24 +312,11 @@ func (i *invoker) executeOnce(ctx context.Context, env messaging.Envelope, req a
 	terminal.Status = out.Status
 	terminal.EndMS = time.Now().UnixMilli()
 	terminal.DurationMS = out.DurationMS
-<<<<<<< HEAD
 	terminal.SamplingDecision = finalDecision.Reason
 	if finalDecision.PersistFull {
 		terminal.Error = out.Error
 		terminal.Result = out.Result
 		terminal.ResultTruncated = out.Truncated
-=======
-	terminal.Error = out.Error
-	terminal.Result = out.Result
-	terminal.ResultTruncated = out.Truncated
-
-	updated, err := i.store.CompleteActivationCAS(ctx, terminal, actTTL)
-	if err != nil {
-		return api.InvocationResult{}, err
-	}
-	if !updated {
-		return api.InvocationResult{}, cserrors.New(cserrors.CSKVCASFailed, "activation state changed concurrently")
->>>>>>> 813f217 (E4.03: trigger retry policy + DLQ on exhaustion)
 	}
 
 	// Skipped activations did not write a running row, so there is no CAS
@@ -354,10 +326,10 @@ func (i *invoker) executeOnce(ctx context.Context, env messaging.Envelope, req a
 	if initialDecision.PersistFull || initialDecision.Skeleton {
 		updated, err := i.store.CompleteActivationCAS(ctx, terminal, actTTL)
 		if err != nil {
-			return err
+			return api.InvocationResult{}, err
 		}
 		if !updated {
-			return cserrors.New(cserrors.CSKVCASFailed, "activation state changed concurrently")
+			return api.InvocationResult{}, cserrors.New(cserrors.CSKVCASFailed, "activation state changed concurrently")
 		}
 	}
 
