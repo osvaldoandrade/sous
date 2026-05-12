@@ -864,6 +864,67 @@ func TestValidationHelpersForPublishScheduleWorker(t *testing.T) {
 		t.Fatal("validateScheduleRequest should reject negative version")
 	}
 
+	// E4.01: cron-kind validation. A valid cron expression with a known
+	// timezone should pass; mixing cron with every_seconds or supplying
+	// garbage must fail with a clear validation error.
+	cronReq := api.CreateScheduleRequest{
+		Name: "cron_ok",
+		Kind: "cron",
+		Cron: "*/15 * * * *",
+		TZ:   "America/Sao_Paulo",
+		Ref:  api.ScheduleRef{Function: "fn1", Alias: "prod"},
+	}
+	if err := validateScheduleRequest(&cronReq); err != nil {
+		t.Fatalf("validateScheduleRequest cron valid failed: %v", err)
+	}
+	mixed := api.CreateScheduleRequest{
+		Name:         "mixed",
+		Cron:         "*/15 * * * *",
+		EverySeconds: 30,
+		Ref:          api.ScheduleRef{Function: "fn1"},
+	}
+	if err := validateScheduleRequest(&mixed); err == nil {
+		t.Fatal("validateScheduleRequest should reject cron + every_seconds")
+	}
+	badCron := api.CreateScheduleRequest{
+		Name: "badcron",
+		Kind: "cron",
+		Cron: "not a cron",
+		Ref:  api.ScheduleRef{Function: "fn1"},
+	}
+	if err := validateScheduleRequest(&badCron); err == nil {
+		t.Fatal("validateScheduleRequest should reject malformed cron")
+	}
+	badTZ := api.CreateScheduleRequest{
+		Name: "badtz",
+		Kind: "cron",
+		Cron: "*/15 * * * *",
+		TZ:   "Mars/Olympus_Mons",
+		Ref:  api.ScheduleRef{Function: "fn1"},
+	}
+	if err := validateScheduleRequest(&badTZ); err == nil {
+		t.Fatal("validateScheduleRequest should reject unknown timezone")
+	}
+	badKind := api.CreateScheduleRequest{
+		Name: "badkind",
+		Kind: "wat",
+		Cron: "*/15 * * * *",
+		Ref:  api.ScheduleRef{Function: "fn1"},
+	}
+	if err := validateScheduleRequest(&badKind); err == nil {
+		t.Fatal("validateScheduleRequest should reject unknown kind")
+	}
+	badJitter := api.CreateScheduleRequest{
+		Name:     "badjit",
+		Kind:     "cron",
+		Cron:     "*/15 * * * *",
+		JitterMs: 4_000_000,
+		Ref:      api.ScheduleRef{Function: "fn1"},
+	}
+	if err := validateScheduleRequest(&badJitter); err == nil {
+		t.Fatal("validateScheduleRequest should reject excessive jitter_ms")
+	}
+
 	validWB := api.CreateWorkerBindingRequest{
 		Name:     "worker1",
 		Domain:   "payments",

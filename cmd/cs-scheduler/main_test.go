@@ -111,7 +111,7 @@ func TestTickPublishesAndPersistsState(t *testing.T) {
 			return nil
 		},
 		GetScheduleInflightFn: func(context.Context, string, string, string) (string, error) { return "", nil },
-		ResolveVersionFn: func(context.Context, string, string, string, string, int64) (int64, error) { return 2, nil },
+		ResolveVersionFn:      func(context.Context, string, string, string, string, int64) (int64, error) { return 2, nil },
 		GetVersionFn: func(context.Context, string, string, string, int64) (api.VersionRecord, []byte, error) {
 			return api.VersionRecord{
 				Config: api.VersionConfig{
