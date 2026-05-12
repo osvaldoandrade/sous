@@ -176,6 +176,66 @@ cs fn invoke reconcile@17 --event ./event.json
 cs http invoke /v1/web/t_abc123/payments/reconcile/prod -X POST -d @event.json
 ```
 
+## Logs
+
+### Tail activation logs
+
+```
+cs fn logs --activation <activation_id>
+cs fn logs --activation <activation_id> --follow
+cs fn logs --activation <activation_id> --format json
+cs fn logs --activation <activation_id> --since 5m
+```
+
+The CLI fetches log chunks from `GET /v1/tenants/{tenant}/activations/{id}/logs`
+using cursor pagination (`?cursor=...&limit=...`) and prints each chunk as it
+arrives. With `--follow` it polls the control plane until interrupted with
+`Ctrl-C`; the poll interval (default 1s) doubles up to 2s when no new chunks
+arrive and resets to the configured interval as soon as data flows again.
+
+Flags:
+
+| Flag | Description |
+| --- | --- |
+| `--activation <id>` | Activation ID to tail (required for the first cut). |
+| `--function <ref>` | Function reference (`name` or `name@alias`); informational while the control plane does not yet expose per-function activation listing. |
+| `--namespace <ns>` | Namespace (default: `default`). |
+| `--follow` | Tail new chunks instead of exiting after the first page. |
+| `--since <duration>` | Drop activations whose `start_ms` is older than `<duration>` ago. Accepts any `time.ParseDuration` value (e.g. `30s`, `5m`, `1h`). |
+| `--format <pretty\|json\|compact>` | Output format (default: `pretty`). |
+| `--poll-interval <duration>` | Initial polling interval in `--follow` mode (default: `1s`). |
+| `--limit <n>` | Maximum chunks per request (1-500, default: `100`). |
+| `--api-url <url>` | Override the control-plane URL from the auth config. |
+
+Output formats:
+
+- `pretty` (default): `<rfc3339> <LEVEL> <message>`; ANSI colours per level
+  when stdout is a TTY and `NO_COLOR` is unset.
+- `json`: one chunk per line as JSON with `sequence`, `activation_id`,
+  `level`, `message`, `raw`.
+- `compact`: `[<level>] <message>` — strips timestamps for log scraping.
+
+Examples:
+
+```
+# Print existing logs for an activation and exit.
+cs fn logs --activation a7e1c1f0-...
+
+# Follow a running activation; Ctrl-C exits 0.
+cs fn logs --activation a7e1c1f0-... --follow
+
+# Emit NDJSON for tooling.
+cs fn logs --activation a7e1c1f0-... --format json | jq -r '.message'
+
+# Only show output from recent activations.
+cs fn logs --activation a7e1c1f0-... --since 30s
+```
+
+Errors surface with a `next step:` hint when applicable; for example,
+invoking `cs fn logs --function reconcile@prod` without `--activation` exits
+with a message pointing the user at `cs fn invoke` to retrieve an activation
+id.
+
 ## Schedule
 
 ```
