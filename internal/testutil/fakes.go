@@ -61,6 +61,12 @@ type FakePersistence struct {
 	GetWorkerBindingFn      func(context.Context, string, string, string) (api.WorkerBinding, error)
 	DeleteWorkerBindingFn   func(context.Context, string, string, string) error
 
+	PutSubscriptionBindingFn      func(context.Context, api.SubscriptionBinding) error
+	GetSubscriptionBindingFn      func(context.Context, string, string, string) (api.SubscriptionBinding, error)
+	ListSubscriptionBindingsFn    func(context.Context, string, string) ([]api.SubscriptionBinding, error)
+	ListAllSubscriptionBindingsFn func(context.Context) ([]api.SubscriptionBinding, error)
+	DeleteSubscriptionBindingFn   func(context.Context, string, string, string) error
+
 	PutCadenceTaskMappingFn    func(context.Context, string, string, string, string, time.Duration) error
 	GetCadenceTaskMappingFn    func(context.Context, string, string, string) (string, error)
 	DeleteCadenceTaskMappingFn func(context.Context, string, string, string) error
@@ -346,6 +352,41 @@ func (f *FakePersistence) GetWorkerBinding(ctx context.Context, tenant, namespac
 func (f *FakePersistence) DeleteWorkerBinding(ctx context.Context, tenant, namespace, name string) error {
 	if f.DeleteWorkerBindingFn != nil {
 		return f.DeleteWorkerBindingFn(ctx, tenant, namespace, name)
+	}
+	return nil
+}
+
+func (f *FakePersistence) PutSubscriptionBinding(ctx context.Context, rec api.SubscriptionBinding) error {
+	if f.PutSubscriptionBindingFn != nil {
+		return f.PutSubscriptionBindingFn(ctx, rec)
+	}
+	return nil
+}
+
+func (f *FakePersistence) GetSubscriptionBinding(ctx context.Context, tenant, namespace, name string) (api.SubscriptionBinding, error) {
+	if f.GetSubscriptionBindingFn != nil {
+		return f.GetSubscriptionBindingFn(ctx, tenant, namespace, name)
+	}
+	return api.SubscriptionBinding{}, errors.New("not implemented")
+}
+
+func (f *FakePersistence) ListSubscriptionBindings(ctx context.Context, tenant, namespace string) ([]api.SubscriptionBinding, error) {
+	if f.ListSubscriptionBindingsFn != nil {
+		return f.ListSubscriptionBindingsFn(ctx, tenant, namespace)
+	}
+	return nil, nil
+}
+
+func (f *FakePersistence) ListAllSubscriptionBindings(ctx context.Context) ([]api.SubscriptionBinding, error) {
+	if f.ListAllSubscriptionBindingsFn != nil {
+		return f.ListAllSubscriptionBindingsFn(ctx)
+	}
+	return nil, nil
+}
+
+func (f *FakePersistence) DeleteSubscriptionBinding(ctx context.Context, tenant, namespace, name string) error {
+	if f.DeleteSubscriptionBindingFn != nil {
+		return f.DeleteSubscriptionBindingFn(ctx, tenant, namespace, name)
 	}
 	return nil
 }

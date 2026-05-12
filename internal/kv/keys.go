@@ -99,3 +99,17 @@ func WorkerBindingIndexKey(tenant, namespace string) string {
 func CadenceTaskKey(tenant, namespace, taskTokenHash string) string {
 	return fmt.Sprintf("cs:cadence:%s:%s:task:%s", tenant, namespace, taskTokenHash)
 }
+
+// SubscriptionMetaKey holds the serialized SubscriptionBinding record. The
+// (tenant, namespace, name) tuple is the documented uniqueness boundary for
+// codeQ subscription triggers (see docs/07-codeq-protocol.md).
+func SubscriptionMetaKey(tenant, namespace, name string) string {
+	return fmt.Sprintf("cs:subscription:%s:%s:%s:meta", tenant, namespace, name)
+}
+
+// SubscriptionIndexKey is the per-namespace SET of subscription names. It
+// supports the LIST API surface and lets a background worker iterate all
+// bindings for a tenant without scanning the keyspace.
+func SubscriptionIndexKey(tenant, namespace string) string {
+	return fmt.Sprintf("cs:subscription:%s:%s:index", tenant, namespace)
+}

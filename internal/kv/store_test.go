@@ -242,3 +242,41 @@ func TestStoreWorkerBindingCadenceKVAndLeaseFlow(t *testing.T) {
 		t.Fatalf("extend lease: %v", err)
 	}
 }
+
+func TestStoreSubscriptionBindingCRUD(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	rec := api.SubscriptionBinding{
+		Tenant:         "t_abc123",
+		Namespace:      "payments",
+		Name:           "reconcile-orders",
+		Topic:          "orders.created",
+		Filter:         `body.kind == "premium"`,
+		FunctionRef:    api.ScheduleRef{Function: "reconcile", Alias: "prod"},
+		Mode:           "ordered",
+		GroupID:        "cs-sub-t_abc123-payments-reconcile-orders",
+		MaxConcurrency: 1,
+		Enabled:        true,
+	}
+	if err := store.PutSubscriptionBinding(ctx, rec); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	list, err := store.ListSubscriptionBindings(ctx, rec.Tenant, rec.Namespace)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("list: %v list=%+v", err, list)
+	}
+	all, err := store.ListAllSubscriptionBindings(ctx)
+	if err != nil || len(all) != 1 {
+		t.Fatalf("list all: %v all=%+v", err, all)
+	}
+	got, err := store.GetSubscriptionBinding(ctx, rec.Tenant, rec.Namespace, rec.Name)
+	if err != nil || got.Name != rec.Name || got.Topic != rec.Topic {
+		t.Fatalf("get: %v got=%+v", err, got)
+	}
+	if err := store.DeleteSubscriptionBinding(ctx, rec.Tenant, rec.Namespace, rec.Name); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := store.GetSubscriptionBinding(ctx, rec.Tenant, rec.Namespace, rec.Name); err == nil {
+		t.Fatal("expected not found after delete")
+	}
+}

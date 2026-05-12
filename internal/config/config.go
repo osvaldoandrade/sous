@@ -87,6 +87,19 @@ type Config struct {
 			DraftTTLSeconds int `yaml:"draft_ttl_seconds"`
 			ActTTLSeconds   int `yaml:"activation_ttl_seconds"`
 		} `yaml:"limits"`
+		// Subscriptions configures the in-process codeQ subscription
+		// consumer launched by cs-control for E4.02 subscription triggers.
+		// See docs/07-codeq-protocol.md ("Subscription triggers").
+		Subscriptions struct {
+			// WorkerPoolDefault is the default pool size for unordered
+			// bindings when the caller omits max_concurrency. Defaults to
+			// 4 when zero or missing.
+			WorkerPoolDefault int `yaml:"worker_pool_default"`
+			// RefreshSeconds is the interval cs-control re-reads the set of
+			// enabled bindings from persistence and reconciles its in-memory
+			// consumer map. Defaults to 10 seconds when zero.
+			RefreshSeconds int `yaml:"refresh_seconds"`
+		} `yaml:"subscriptions"`
 	} `yaml:"cs_control"`
 
 	CSHTTPGateway struct {
