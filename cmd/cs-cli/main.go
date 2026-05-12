@@ -151,7 +151,7 @@ func reorderFlags(fs *flag.FlagSet, args []string) []string {
 			continue
 		}
 		flags = append(flags, a)
-		name := strings.TrimLeft(a, "-")
+		name := strings.TrimPrefix(strings.TrimPrefix(a, "-"), "-")
 		if strings.ContainsRune(name, '=') {
 			continue
 		}
