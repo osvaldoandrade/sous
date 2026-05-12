@@ -260,6 +260,14 @@ type VersionRecord struct {
 	SHA256        string        `json:"sha256"`
 	Config        VersionConfig `json:"config"`
 	PublishedAtMS int64         `json:"published_at_ms"`
+	// Signature is the optional E5.02 publish-time signature record.
+	// Present when the publisher supplied a valid signature (or when
+	// plugins.signing.required is true; the publish handler rejects
+	// missing signatures in that mode). nil for legacy versions
+	// published before E5.02 — the invoker enforces re-verification
+	// only when this field is non-nil, so the roll-out is backward
+	// compatible. See docs/15-security.md.
+	Signature *BundleSignature `json:"signature,omitempty"`
 }
 
 type AliasRecord struct {

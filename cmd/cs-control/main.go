@@ -124,6 +124,11 @@ func (s *server) serve() error {
 		s.subscriptionRoutes(pr)
 		s.egressRoutes(pr)
 		pr.Get("/v1/tenants/{tenant}/audit", s.getAuditHistory)
+		// E5.02: tenant Ed25519 signing-key management. Rotate returns
+		// the private key bytes exactly once; subsequent GETs expose
+		// only the public half. See docs/15-security.md.
+		pr.Post("/v1/tenants/{tenant}/signing-keys/rotate", s.rotateSigningKey)
+		pr.Get("/v1/tenants/{tenant}/signing-keys/active", s.getActiveSigningKey)
 	})
 
 	httpServer := &http.Server{
@@ -469,6 +474,13 @@ func (s *server) publishVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// E5.02: publish-time signature gate. See docs/15-security.md.
+	sig, sigErr := verifyPublishSignature(r, s.store, s.cfg.Plugins.Signing.Required, sha, tenant, namespace, name)
+	if sigErr != nil {
+		cserrors.WriteHTTP(w, sigErr, requestID(r))
+		return
+	}
+
 	if req.Config.TimeoutMS == 0 {
 		req.Config.TimeoutMS = manifest.Limits.TimeoutMS
 	}
@@ -491,6 +503,7 @@ func (s *server) publishVersion(w http.ResponseWriter, r *http.Request) {
 		SHA256:        sha,
 		Config:        req.Config,
 		PublishedAtMS: now,
+		Signature:     sig,
 	}, bundleBytes, req.Alias)
 	if err != nil {
 		cserrors.WriteHTTP(w, err, requestID(r))
