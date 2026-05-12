@@ -72,6 +72,15 @@ func ActivationTombstoneKey(tenant, activationID string) string {
 	return fmt.Sprintf("cs:act:%s:%s:tomb", tenant, activationID)
 }
 
+// ActivationChildrenKey holds the LPUSH'd list of child activation IDs
+// directly triggered by the named parent activation. The list backs the
+// /v1/tenants/{tenant}/activations/{id}/tree endpoint so the control plane
+// can materialize an agent decision tree without scanning every activation
+// in KVRocks. See docs/14-observability.md.
+func ActivationChildrenKey(tenant, activationID string) string {
+	return fmt.Sprintf("cs:act:%s:%s:children", tenant, activationID)
+}
+
 func ScheduleMetaKey(tenant, namespace, name string) string {
 	return fmt.Sprintf("cs:schedule:%s:%s:%s:meta", tenant, namespace, name)
 }

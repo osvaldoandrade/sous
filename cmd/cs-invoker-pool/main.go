@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -210,11 +211,29 @@ func (i *invoker) handleInvocation(ctx context.Context, env messaging.Envelope, 
 		ResolvedVersion: version,
 	}
 	actTTL := time.Duration(i.cfg.CSControl.Limits.ActTTLSeconds) * time.Second
+	// Stamp parent/root activation IDs for agent decision-tree tracing (E7.01).
+	// When the trigger carries parent_activation_id (set by the gateway after
+	// reading X-CS-Parent-Activation), inherit the parent's root if known.
+	// Otherwise this is a root activation whose RootActivationID equals its
+	// own ID. See docs/14-observability.md.
+	resolveTraceParent(ctx, i.store, &activation)
 	if err := i.store.PutActivationRunning(ctx, activation, actTTL); err != nil {
 		return err
 	}
+	if activation.ParentActivationID != "" {
+		if err := i.store.AppendActivationChild(ctx, activation.Tenant, activation.ParentActivationID, activation.ActivationID, actTTL); err != nil && i.logger != nil {
+			// Best-effort: the tree index is observability-only, so log and
+			// continue rather than failing the invocation.
+			i.logger.Warn(ctx, "failed to append activation child: "+err.Error())
+		}
+	}
 
-	out := i.runner.Execute(ctx, bundleBytes, req)
+	// Tag the runtime context with the current activation ID so the cs-js
+	// egress shim (cs.http.fetch) can inject X-CS-Parent-Activation on
+	// outbound HTTP calls without each handler threading the value through.
+	// See internal/runtime/runner.go and docs/14-observability.md.
+	execCtx := observability.WithParent(ctx, activation.ActivationID)
+	out := i.runner.Execute(execCtx, bundleBytes, req)
 	// Surface size-limit enforcement at the invoker boundary. The runtime
 	// has already truncated to limits.MaxResultBytes / MaxLogBytes; here we
 	// stamp the documented sentinel header on the response so synchronous
@@ -406,4 +425,48 @@ func atoi(v string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+// resolveTraceParent stamps ParentActivationID / RootActivationID on the
+// activation record using the trigger's parent_activation_id hint (set by
+// the gateway after reading X-CS-Parent-Activation). When no parent is set
+// the activation is the root of its decision tree and inherits its own ID
+// as RootActivationID. When the parent activation has already terminated we
+// reuse its RootActivationID so siblings share a stable root pointer.
+// Lookup failures are non-fatal: tracing is best-effort and must never
+// block the invocation hot path.
+func resolveTraceParent(ctx context.Context, store persistence.Provider, rec *api.ActivationRecord) {
+	if rec == nil {
+		return
+	}
+	parent := triggerParentActivationID(rec.Trigger)
+	if parent == "" {
+		// Root activation: every node in the call tree references this ID.
+		rec.RootActivationID = rec.ActivationID
+		return
+	}
+	rec.ParentActivationID = parent
+	// Best-effort: ignore lookup errors. We default to "parent is its own
+	// root" so the child still has a defined RootActivationID even if the
+	// parent record has already expired.
+	if parentRec, err := store.GetActivation(ctx, rec.Tenant, parent); err == nil {
+		if parentRec.RootActivationID != "" {
+			rec.RootActivationID = parentRec.RootActivationID
+			return
+		}
+		rec.RootActivationID = parentRec.ActivationID
+		return
+	}
+	rec.RootActivationID = parent
+}
+
+// triggerParentActivationID extracts the parent_activation_id hint that the
+// gateway places in Trigger.Source when an inbound HTTP carries the
+// X-CS-Parent-Activation header. Returns "" when no parent was advertised.
+func triggerParentActivationID(t api.Trigger) string {
+	if t.Source == nil {
+		return ""
+	}
+	v, _ := t.Source["parent_activation_id"].(string)
+	return strings.TrimSpace(v)
 }

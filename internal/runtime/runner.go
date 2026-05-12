@@ -21,6 +21,7 @@ import (
 	"github.com/osvaldoandrade/sous/internal/api"
 	"github.com/osvaldoandrade/sous/internal/bundle"
 	cserrors "github.com/osvaldoandrade/sous/internal/errors"
+	"github.com/osvaldoandrade/sous/internal/observability"
 )
 
 var (
@@ -530,6 +531,12 @@ func (r *Runner) bindHTTP(ctx context.Context, rt *goja.Runtime, csObj *goja.Obj
 		for k, v := range headers {
 			req.Header.Set(k, v)
 		}
+		// Inject X-CS-Parent-Activation so a downstream cs-http-gateway can
+		// link the child activation back to this one. The invoker stamps
+		// the current activation ID onto ctx via observability.WithParent
+		// before running user code; if it's missing this is a no-op. See
+		// docs/14-observability.md.
+		observability.InjectParentHeader(req, ctx)
 		resp, err := r.httpClient.Do(req)
 		if err != nil {
 			panic(rt.NewGoError(err))

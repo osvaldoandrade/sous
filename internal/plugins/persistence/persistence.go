@@ -42,6 +42,17 @@ type Provider interface {
 	// read to surface the X-CS-Truncated: logs response header.
 	LogTruncated(ctx context.Context, tenant, activationID string) (bool, error)
 
+	// AppendActivationChild records a parent->child activation edge so the
+	// control plane can materialize an agent decision tree without scanning
+	// all activations. childID is appended to the parent's children index;
+	// callers should pass the activation TTL so the index expires alongside
+	// the activation record. See docs/14-observability.md.
+	AppendActivationChild(ctx context.Context, tenant, parentID, childID string, ttl time.Duration) error
+	// GetActivationChildren returns the child activation IDs (oldest-first)
+	// previously recorded under parentID. A missing index yields a nil slice
+	// with no error so callers can treat "no children" and "expired" alike.
+	GetActivationChildren(ctx context.Context, tenant, parentID string) ([]string, error)
+
 	PutSchedule(ctx context.Context, rec api.ScheduleRecord) error
 	ListSchedules(ctx context.Context, tenant, namespace string) ([]api.ScheduleRecord, error)
 	ListAllSchedules(ctx context.Context) ([]api.ScheduleRecord, error)

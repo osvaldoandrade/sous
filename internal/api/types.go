@@ -272,6 +272,16 @@ type ActivationRecord struct {
 	Result          *FunctionResponse `json:"result,omitempty"`
 	RequestID       string            `json:"request_id,omitempty"`
 	ResolvedVersion int64             `json:"resolved_version,omitempty"`
+	// ParentActivationID links a child activation back to the activation
+	// whose user code triggered it. Empty for root activations (i.e. the
+	// first hop of a call chain). Propagated via the X-CS-Parent-Activation
+	// header injected by the runtime egress shim. See docs/14-observability.md.
+	ParentActivationID string `json:"parent_activation_id,omitempty"`
+	// RootActivationID identifies the top of the call tree this activation
+	// belongs to. Roots have RootActivationID == ActivationID; children
+	// inherit it from their parent. Used by the /tree endpoint to bound
+	// graph traversal to a single decision tree.
+	RootActivationID string `json:"root_activation_id,omitempty"`
 }
 
 type CreateFunctionRequest struct {

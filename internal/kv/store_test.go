@@ -143,6 +143,36 @@ func TestStoreActivationResultAndLogsFlow(t *testing.T) {
 	}
 }
 
+func TestStoreActivationChildrenIndex(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+
+	// Appending two children appends in order. The store reverses the LPUSH
+	// list internally so callers see oldest-first traversal.
+	if err := store.AppendActivationChild(ctx, "t_abc123", "parent", "child-a", time.Hour); err != nil {
+		t.Fatalf("append a: %v", err)
+	}
+	if err := store.AppendActivationChild(ctx, "t_abc123", "parent", "child-b", time.Hour); err != nil {
+		t.Fatalf("append b: %v", err)
+	}
+	got, err := store.GetActivationChildren(ctx, "t_abc123", "parent")
+	if err != nil {
+		t.Fatalf("get children: %v", err)
+	}
+	if len(got) != 2 || got[0] != "child-a" || got[1] != "child-b" {
+		t.Fatalf("unexpected children order: %+v", got)
+	}
+
+	// Empty or missing parents are no-ops / nil results, not errors. This
+	// matches the contract for orphan / expired activations.
+	if err := store.AppendActivationChild(ctx, "t_abc123", "", "child-c", time.Hour); err != nil {
+		t.Fatalf("empty parent should be a no-op: %v", err)
+	}
+	if items, err := store.GetActivationChildren(ctx, "t_abc123", "unknown"); err != nil || len(items) != 0 {
+		t.Fatalf("unknown parent should yield empty list, got items=%+v err=%v", items, err)
+	}
+}
+
 func TestStoreScheduleFlow(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
