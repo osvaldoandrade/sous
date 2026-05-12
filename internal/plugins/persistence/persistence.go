@@ -95,4 +95,15 @@ type Provider interface {
 	TryAcquireLease(ctx context.Context, key, value string, ttl time.Duration) (bool, error)
 	GetLeaseValue(ctx context.Context, key string) (string, error)
 	ExtendLease(ctx context.Context, key string, ttl time.Duration) error
+
+	// Per-tenant egress allowlist (roadmap E6.02). The runtime calls
+	// GetEgressPolicy once per activation and compiles the result into
+	// an internal/runtime/egress.Matcher; cs-control writes the policy
+	// via PutEgressPolicy from the
+	// PUT /v1/tenants/{tenant}/egress-policy handler. Missing keys
+	// surface as CS_VALIDATION_FAILED "egress policy not found" so the
+	// invoker can distinguish "no policy" (deny-by-default fallthrough)
+	// from a transient KV failure.
+	GetEgressPolicy(ctx context.Context, tenant string) (api.EgressPolicy, error)
+	PutEgressPolicy(ctx context.Context, tenant string, policy api.EgressPolicy) error
 }

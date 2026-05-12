@@ -68,6 +68,11 @@ header when known.
 - `CS_RUNTIME_MEMORY_LIMIT`
 - `CS_RUNTIME_EXCEPTION`
 - `CS_RUNTIME_CAPABILITY_DENIED`
+- `CS_EGRESS_DENIED` — HTTP `403 Forbidden`. Returned by `cs.http.fetch`
+  when the tenant's egress allowlist rejects the destination. The
+  message names the policy rule that fired (e.g. `host "x" not in
+  allowlist (default-deny)`). See `docs/15-security.md`
+  "Per-tenant egress allowlist".
 
 ## Cadence
 
@@ -89,5 +94,6 @@ header when known.
 - `CS_IDEMPOTENCY_CONFLICT` → 409
 - `CS_ACTIVATION_TTL_EXPIRED` → 410
 - `CS_CODEQ_CORRELATION_TIMEOUT` → 504
+- `CS_EGRESS_DENIED` → 403
 - `CS_*_UNAVAILABLE` → 503
 - runtime errors inside function → 200 with function-defined statusCode, when the function returns a valid response object

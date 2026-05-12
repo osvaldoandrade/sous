@@ -22,6 +22,7 @@ import (
 	"github.com/osvaldoandrade/sous/internal/bundle"
 	cserrors "github.com/osvaldoandrade/sous/internal/errors"
 	"github.com/osvaldoandrade/sous/internal/observability"
+	"github.com/osvaldoandrade/sous/internal/runtime/egress"
 )
 
 var (
@@ -74,6 +75,37 @@ func NewRunner(kv KVProvider, codeq CodeQProvider, maxResultBytes, maxErrorBytes
 		maxLogBytes:         maxLogBytes,
 		allowPrivateIPCheck: true,
 	}
+}
+
+// egressCtxKey is the context key the runner uses to thread a
+// per-activation egress.Matcher into bindHTTP without changing the
+// Execute signature. cs-invoker-pool tags the context after loading
+// the tenant policy; bindHTTP reads it during binding setup.
+type egressCtxKey struct{}
+
+// WithEgressMatcher returns ctx tagged with m. Passing a nil matcher
+// is a no-op so callers can safely defer to the legacy
+// "manifest http.allowHosts + private-IP block" guardrails when no
+// policy is loaded.
+func WithEgressMatcher(ctx context.Context, m *egress.Matcher) context.Context {
+	if m == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, egressCtxKey{}, m)
+}
+
+func egressMatcherFromContext(ctx context.Context) *egress.Matcher {
+	m, _ := ctx.Value(egressCtxKey{}).(*egress.Matcher)
+	return m
+}
+
+// SetAllowPrivateIPCheck toggles the runner-level private-IP guard.
+// Tests that target a loopback HTTP server (httptest.NewServer binds
+// 127.0.0.1) need to disable the guard so the call reaches the
+// test server. Production code must leave it enabled — the private-IP
+// block is a non-negotiable invariant from docs/02-requirements.md.
+func (r *Runner) SetAllowPrivateIPCheck(enabled bool) {
+	r.allowPrivateIPCheck = enabled
 }
 
 func (r *Runner) Execute(ctx context.Context, bundleBytes []byte, request api.InvocationRequest) ExecutionOutput {
@@ -133,6 +165,13 @@ func (r *Runner) Execute(ctx context.Context, bundleBytes []byte, request api.In
 		if strings.Contains(execErr.Error(), string(cserrors.CSImportNotFound)) {
 			mappedCode = cserrors.CSImportNotFound
 			errType = "ImportError"
+		}
+		// E6.02: an egress allowlist denial bubbles up the same way.
+		// Map it so the synchronous caller (gateway / API invoke) sees
+		// a 403 with CS_EGRESS_DENIED rather than a generic 500.
+		if strings.Contains(execErr.Error(), string(cserrors.CSEgressDenied)) {
+			mappedCode = cserrors.CSEgressDenied
+			errType = "EgressDenied"
 		}
 		msg := execErr.Error()
 		if len(msg) > r.maxErrorBytes {
@@ -499,6 +538,14 @@ func (r *Runner) bindHTTP(ctx context.Context, rt *goja.Runtime, csObj *goja.Obj
 	allow := append([]string(nil), caps.AllowHosts...)
 	sort.Strings(allow)
 
+	// matcher is captured per-activation: bindHTTP runs once per
+	// invocation so the closure sees the policy that was current at
+	// dispatch time. A nil matcher means "no tenant policy" and the
+	// runner falls back to the manifest http.allowHosts list — that
+	// preserves the legacy v0.1 behaviour for tenants who have not
+	// uploaded an EgressPolicy yet (roadmap E6.02).
+	matcher := egressMatcherFromContext(ctx)
+
 	isAllowedHost := func(host string) bool {
 		for _, h := range allow {
 			if strings.EqualFold(host, h) {
@@ -515,6 +562,15 @@ func (r *Runner) bindHTTP(ctx context.Context, rt *goja.Runtime, csObj *goja.Obj
 			panic(rt.NewGoError(err))
 		}
 		hostname := u.Hostname()
+		// Per-tenant egress allowlist runs FIRST so a denial surfaces as
+		// CS_EGRESS_DENIED (403) rather than the generic capability-
+		// denied 403. The manifest http.allowHosts list and the private-
+		// IP block from docs/02-requirements.md still run afterwards;
+		// the egress matcher only widens the denial surface, never the
+		// allow surface. See docs/15-security.md "Network egress".
+		if matcher != nil && !matcher.Allowed(hostname) {
+			panic(rt.NewGoError(cserrors.New(cserrors.CSEgressDenied, "egress denied: "+matcher.DenyReason(hostname))))
+		}
 		if !isAllowedHost(hostname) {
 			panic(rt.NewGoError(cserrors.New(cserrors.CSRuntimeCapDenied, "http host not allowed")))
 		}

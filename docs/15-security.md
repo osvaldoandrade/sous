@@ -93,7 +93,7 @@ provider is unreachable the activation fails with `CS_SECRET_UNAVAILABLE`
 
 The runtime denies egress by default.
 
-If `http.allowHosts` exists:
+If `http.allowHosts` exists in the function manifest:
 
 - `cs.http.fetch` allows only those hostnames.
 
@@ -105,6 +105,58 @@ The runtime blocks private IP ranges:
 - 127.0.0.0/8
 - ::1/128
 - fc00::/7
+
+The private-IP block is a non-negotiable invariant — no allowlist
+override can re-enable it. See `docs/02-requirements.md` for the
+contract.
+
+### Per-tenant egress allowlist (E6.02)
+
+A tenant-scoped **EgressPolicy** layers on top of the manifest
+`http.allowHosts` list:
+
+```json
+{
+  "allowed_hosts": ["api.partner.com", "*.example.com"],
+  "allowed_cidrs": ["203.0.113.0/24", "2001:db8::/32"],
+  "denied_hosts":  ["abuse.example.com"],
+  "default_deny":  true
+}
+```
+
+Semantics:
+
+- **`default_deny: true`** (recommended) — destinations not in
+  `allowed_hosts` or `allowed_cidrs` are rejected. Each invocation
+  sees `CS_EGRESS_DENIED` (HTTP 403) with a reason naming the policy
+  rule that fired.
+- **`default_deny: false`** — destinations not in `denied_hosts` are
+  permitted. Use only for trusted internal tenants that need to dial
+  a broad set of upstreams.
+- `allowed_hosts` entries are matched **case-insensitively**.
+  `*.example.com` matches any subdomain (`api.example.com`,
+  `v1.api.example.com`) but never the apex (`example.com`).
+- `allowed_cidrs` accepts IPv4 or IPv6 CIDRs. Bare IPs (`8.8.8.8`,
+  `2001:db8::1`) are accepted and interpreted as `/32` / `/128`.
+- `denied_hosts` is evaluated **before** `allowed_hosts`, so an
+  operator can carve a destination out of a wildcard
+  (`allow *.example.com` + `deny abuse.example.com`).
+- The private-IP block runs **after** the allowlist. A policy entry
+  that resolves to `10.0.0.0/8`, `127.0.0.0/8`, `fc00::/7`, etc. is
+  still rejected by the runtime — the allowlist cannot override the
+  private-IP invariant.
+- Missing or malformed policies fall through to the legacy
+  manifest-only behaviour so existing tenants keep working until they
+  opt in. cs-invoker-pool logs (at warn-level) any failure to compile
+  a stored policy.
+
+Storage: `cs:tenant:<tenant>:egress:policy` in KVRocks. The control
+plane CRUD endpoints (`GET /v1/tenants/{tenant}/egress-policy`,
+`PUT /v1/tenants/{tenant}/egress-policy`) gate writes through
+the Tikti actions `cs:egress:policy:read` and
+`cs:egress:policy:write`.
+
+Error code: `CS_EGRESS_DENIED` (HTTP 403). See `docs/21-errors.md`.
 
 ## Request validation
 
@@ -127,6 +179,103 @@ The invoker verifies `sha256` on load.
 The control plane rejects publish when:
 
 - `sha256` mismatches draft record
+
+## Signing (E5.02)
+
+Tenants register an Ed25519 public key with the control plane and sign
+every publish over a canonical payload bound to the bundle digest and
+the publish tuple. The invoker re-verifies the signature on every cold
+bundle load — a tampered bundle, a rotated key, or a missing key all
+refuse to execute.
+
+### Algorithm
+
+Ed25519 only. Public keys are 32 bytes, signatures are 64 bytes, and
+verification is a single-call stdlib operation (`crypto/ed25519.Verify`)
+that adds microseconds to the bundle load path. ECDSA P-256 is reserved
+for a future additive change — the `BundleSignature.Algorithm` field
+already exists, the publish/invoke verifier just switches on it.
+
+### Canonical payload
+
+The signature commits to the byte sequence produced by
+`signing.CanonicalPayload(sha, tenant, namespace, function, 0)`:
+
+```
+"cs.bundle.signature.v1\x00"
+uint32_be(len(bundleSHA))   | bundleSHA            (raw bytes)
+uint32_be(len(tenant))      | tenant               (utf-8)
+uint32_be(len(namespace))   | namespace            (utf-8)
+uint32_be(len(function))    | function             (utf-8)
+int64_be(version)                                  (always 0 in v0.1)
+```
+
+- The magic prefix prevents cross-protocol reuse.
+- Tenant/namespace/function are included so the same bundle bytes
+  cannot be re-published under a different name with the same
+  signature.
+- Version is signed as `0` because the monotonic version number is
+  allocated server-side after the agent has signed; cs-control persists
+  the signature alongside the resulting `VersionRecord` and the invoker
+  re-verifies with the same constant.
+- No timestamp lives inside the canonical payload — the issue threat
+  model explicitly excludes replay against a different version, which
+  is already prevented by version immutability.
+
+### Key lifecycle
+
+| Endpoint                                          | Effect                                                |
+|---------------------------------------------------|-------------------------------------------------------|
+| `POST /v1/tenants/{tenant}/signing-keys/rotate`   | Generates a fresh Ed25519 keypair, stores the public  |
+|                                                   | half under `cs:tenant:{tenant}:signing:ed25519:active`,|
+|                                                   | returns the private key bytes **once** in the body.   |
+| `GET /v1/tenants/{tenant}/signing-keys/active`    | Returns the active public key + KID + algorithm.      |
+
+The control plane never persists the private half. A tenant that loses
+its private key must rotate; old signed versions persist (they still
+verify against the new key only if it produced them, otherwise the
+invoker refuses to execute — operators must re-publish under the new
+key).
+
+### Publish-time enforcement
+
+The publish handler reads the detached signature from the
+`X-CS-Signature` request header (base64, standard or URL alphabet, with
+or without padding). The flow is:
+
+1. Check the header. Missing + `plugins.signing.required=true` →
+   `CS_SIGNATURE_MISSING` (400). Missing + required=false → accept the
+   publish without a signature (backward-compatible mode).
+2. Decode base64. Malformed → `CS_SIGNATURE_INVALID` (400).
+3. Load the tenant's active public key. Missing key →
+   `CS_SIGNATURE_KEY_NOT_FOUND` (404).
+4. Verify the signature against the canonical payload. Mismatch →
+   `CS_SIGNATURE_INVALID` (400).
+5. Persist the signature on the `VersionRecord` (`Signature` field).
+
+### Invoke-time enforcement
+
+The invoker calls `verifyInvokeSignature` immediately after the
+existing `bundle.VerifySHA256` check. When `VersionRecord.Signature !=
+nil`, the invoker reads the tenant's current active public key from
+`cs:tenant:{tenant}:signing:ed25519:active` and re-verifies. Any
+failure (algorithm mismatch, missing key, rotated key, tampered bytes)
+drops the activation with `CS_SIGNATURE_INVALID` and logs the reason
+through the structured logger.
+
+### The `plugins.signing.required` knob
+
+`plugins.signing.required` (default `false`) controls the publish-time
+gate. The roll-out is:
+
+1. Land E5.02 with `required=false` (current default).
+2. Tenants rotate signing keys at their own pace; signed publishes are
+   recorded but unsigned publishes still succeed.
+3. Operators flip the knob to `true` once every active tenant has at
+   least one rotation. Publishes without `X-CS-Signature` then 400.
+4. The invoker side always re-verifies when `Signature != nil`, so
+   versions published in the unsigned window keep running unchanged
+   while signed versions are guarded forever.
 
 ## Supply chain artifacts
 

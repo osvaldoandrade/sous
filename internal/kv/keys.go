@@ -129,3 +129,14 @@ func SubscriptionMetaKey(tenant, namespace, name string) string {
 func SubscriptionIndexKey(tenant, namespace string) string {
 	return fmt.Sprintf("cs:subscription:%s:%s:index", tenant, namespace)
 }
+
+// TenantEgressPolicyKey holds the serialized per-tenant network egress
+// policy (api.EgressPolicy) consumed by the cs-invoker-pool runner on
+// every activation. cs-control writes this key from the
+// PUT /v1/tenants/{tenant}/egress-policy handler. The cs:tenant:
+// prefix is shared with other tenant-scoped, non-namespaced settings
+// (e.g. signing). See docs/15-security.md "Network egress" and roadmap
+// E6.02 (#24).
+func TenantEgressPolicyKey(tenant string) string {
+	return "cs:tenant:" + tenant + ":egress:policy"
+}

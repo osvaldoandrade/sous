@@ -122,6 +122,7 @@ func (s *server) serve() error {
 		pr.Post("/v1/tenants/{tenant}/namespaces/{namespace}/cadence/workers", s.createWorkerBinding)
 		pr.Delete("/v1/tenants/{tenant}/namespaces/{namespace}/cadence/workers/{name}", s.deleteWorkerBinding)
 		s.subscriptionRoutes(pr)
+		s.egressRoutes(pr)
 		pr.Get("/v1/tenants/{tenant}/audit", s.getAuditHistory)
 	})
 

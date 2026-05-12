@@ -27,6 +27,7 @@ import (
 	"github.com/osvaldoandrade/sous/internal/plugins/registry"
 	"github.com/osvaldoandrade/sous/internal/plugins/secrets"
 	"github.com/osvaldoandrade/sous/internal/runtime"
+	"github.com/osvaldoandrade/sous/internal/runtime/egress"
 )
 
 type invoker struct {
@@ -240,7 +241,6 @@ func (i *invoker) executeOnce(ctx context.Context, env messaging.Envelope, req a
 	if !bundle.VerifySHA256(bundleBytes, versionMeta.SHA256) {
 		return api.InvocationResult{}, cserrors.New(cserrors.CSValidationFailed, "bundle sha mismatch")
 	}
-
 	sem := i.versionSemaphore(req, max(1, versionMeta.Config.MaxConcurrency))
 	select {
 	case sem <- struct{}{}:
@@ -312,6 +312,14 @@ func (i *invoker) executeOnce(ctx context.Context, env messaging.Envelope, req a
 		return api.InvocationResult{}, secretErr
 	}
 	execCtx = runtime.WithEnv(execCtx, envVars)
+	// E6.02: load the tenant's egress allowlist and thread the compiled
+	// matcher into runtime via context. Missing or malformed policies
+	// fall through to the legacy "manifest http.allowHosts + private-IP
+	// block" guardrails so existing tenants keep working until they
+	// opt in. See docs/15-security.md "Network egress".
+	if matcher := i.loadEgressMatcher(ctx, req.Tenant); matcher != nil {
+		execCtx = runtime.WithEgressMatcher(execCtx, matcher)
+	}
 	out := i.runner.Execute(execCtx, bundleBytes, req)
 	// Surface size-limit enforcement at the invoker boundary. The runtime
 	// has already truncated to limits.MaxResultBytes / MaxLogBytes; here we
@@ -586,20 +594,7 @@ func triggerParentActivationID(t api.Trigger) string {
 // resolveSecrets walks the VersionConfig.Secrets list, asks the configured
 // secret provider to materialise each one, and returns the resulting
 // {name -> value} map ready to be stamped onto the activation context via
-// runtime.WithEnv. The function returns:
-//
-//   - (nil, nil)       when refs is empty — the fast path for functions
-//     that declare no secrets, which is the v0.1 default.
-//   - (nil, *CSError)  when any entry is malformed (CS_VALIDATION_FAILED)
-//     or the provider reports the path is missing
-//     (CS_SECRET_NOT_FOUND). The activation is aborted before user code
-//     runs so a half-injected env never reaches the runtime.
-//   - (map, nil)       on the happy path. The map is owned by the caller
-//     and never mutated by the runtime after WithEnv freezes a copy.
-//
-// The function deliberately does not log secret material — only the
-// reference name and the underlying provider error code are surfaced.
-// See docs/15-security.md "Secrets" for the redaction guarantees.
+// runtime.WithEnv.
 func (i *invoker) resolveSecrets(ctx context.Context, req api.InvocationRequest, refs []string) (map[string]string, error) {
 	if len(refs) == 0 {
 		return nil, nil
@@ -615,10 +610,6 @@ func (i *invoker) resolveSecrets(ctx context.Context, req api.InvocationRequest,
 		}
 		value, err := i.secretsProvider.Get(ctx, req.Tenant, ref)
 		if err != nil {
-			// Providers already wrap their errors in CSError with the
-			// right code; pass them through unchanged. Transport
-			// failures from a non-conforming driver get re-wrapped so
-			// the caller sees a CS_SECRET_* code regardless of source.
 			var cserr *cserrors.CSError
 			if stderrors.As(err, &cserr) {
 				return nil, cserr
@@ -628,4 +619,36 @@ func (i *invoker) resolveSecrets(ctx context.Context, req api.InvocationRequest,
 		out[ref.Name] = value
 	}
 	return out, nil
+}
+
+// loadEgressMatcher fetches the tenant's egress allowlist (roadmap
+// E6.02) and compiles it into a runtime/egress.Matcher.
+func (i *invoker) loadEgressMatcher(ctx context.Context, tenant string) *egress.Matcher {
+	if i == nil || i.store == nil || strings.TrimSpace(tenant) == "" {
+		return nil
+	}
+	apiPolicy, err := i.store.GetEgressPolicy(ctx, tenant)
+	if err != nil {
+		var csErr *cserrors.CSError
+		if stderrors.As(err, &csErr) && csErr.Code == cserrors.CSValidationFailed {
+			return nil
+		}
+		if i.logger != nil {
+			i.logger.Warn(ctx, "failed to load egress policy tenant="+tenant+": "+err.Error())
+		}
+		return nil
+	}
+	matcher, err := egress.Compile(egress.Policy{
+		AllowedHosts: apiPolicy.AllowedHosts,
+		AllowedCIDRs: apiPolicy.AllowedCIDRs,
+		DeniedHosts:  apiPolicy.DeniedHosts,
+		DefaultDeny:  apiPolicy.DefaultDeny,
+	})
+	if err != nil {
+		if i.logger != nil {
+			i.logger.Warn(ctx, "failed to compile egress policy tenant="+tenant+": "+err.Error())
+		}
+		return nil
+	}
+	return matcher
 }

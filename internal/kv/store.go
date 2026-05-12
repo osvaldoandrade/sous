@@ -1026,6 +1026,42 @@ func (s *Store) ExtendLease(ctx context.Context, key string, ttl time.Duration) 
 	return s.client.Expire(ctx, key, ttl).Err()
 }
 
+// GetEgressPolicy returns the per-tenant outbound network policy persisted
+// under TenantEgressPolicyKey. A missing key surfaces as CS_VALIDATION_FAILED
+// "egress policy not found" so the invoker can fall through to the
+// configured default (deny-by-default with no allowlist entries — see
+// docs/15-security.md and roadmap E6.02).
+func (s *Store) GetEgressPolicy(ctx context.Context, tenant string) (api.EgressPolicy, error) {
+	var out api.EgressPolicy
+	raw, err := s.client.Get(ctx, TenantEgressPolicyKey(tenant)).Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return out, cserrors.New(cserrors.CSValidationFailed, "egress policy not found")
+		}
+		return out, cserrors.Wrap(cserrors.CSKVReadFailed, "failed to read egress policy", err)
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return out, cserrors.Wrap(cserrors.CSKVReadFailed, "failed to decode egress policy", err)
+	}
+	return out, nil
+}
+
+// PutEgressPolicy replaces the per-tenant egress policy. UpdatedAtMS is
+// stamped server-side so the wall-clock origin is always cs-control.
+// No TTL is applied: tenant settings live for the lifetime of the
+// tenant.
+func (s *Store) PutEgressPolicy(ctx context.Context, tenant string, policy api.EgressPolicy) error {
+	policy.UpdatedAtMS = time.Now().UnixMilli()
+	raw, err := json.Marshal(policy)
+	if err != nil {
+		return cserrors.Wrap(cserrors.CSValidationFailed, "failed to encode egress policy", err)
+	}
+	if err := s.client.Set(ctx, TenantEgressPolicyKey(tenant), raw, 0).Err(); err != nil {
+		return cserrors.Wrap(cserrors.CSKVWriteFailed, "failed to write egress policy", err)
+	}
+	return nil
+}
+
 func ParseCursor(v string) int64 {
 	if v == "" {
 		return 0
