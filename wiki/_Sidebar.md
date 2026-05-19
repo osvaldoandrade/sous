@@ -22,7 +22,7 @@
 - [ledgerDB Audit](ledgerDB-Audit)
 
 ## Interfaces
-- [REST API](REST-API)
+- [REST API](Developers-REST-API)
 - [CLI](CLI)
 - [Schemas](Schemas)
 

@@ -37,7 +37,7 @@ const NAV = [
   {
     section: "Interfaces",
     pages: [
-      ["REST API", "REST-API"],
+      ["REST API", "Developers-REST-API"],
       ["CLI", "CLI"],
       ["Schemas", "Schemas"],
       ["Error Model", "Error-Model"],
