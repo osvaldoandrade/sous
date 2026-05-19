@@ -31,7 +31,7 @@ const NAV = [
       ["IAM with Tikti", "IAM-with-Tikti"],
       ["codeQ Protocol", "codeQ-Protocol"],
       ["Storage: KVRocks", "Storage-KVRocks"],
-      ["ledgerDB Audit", "ledgerDB-Audit"],
+      ["ledgerDB Audit", "Enabled-Services-ledgerDB-Audit"],
     ],
   },
   {
