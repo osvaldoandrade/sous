@@ -1,46 +1,84 @@
-# SOUS Docs
+# Sous
 
 ## Start Here
-- [Get Started](Get-Started)
-- [Architecture](Architecture)
+- [Home](Home)
+- [FAQ](FAQ)
 
 ## Programming Model
 - [Functions](Programming-Model-Functions)
 - [Triggers and Schedules](Programming-Model-Triggers-and-Schedules)
 - [Workflows](Programming-Model-Workflows)
 
-## Triggers
-- [HTTP Invoke Path](HTTP-Invoke-Path)
-- [Scheduler](Scheduler)
-- [Cadence Integration](Cadence-Integration)
+## Developers
+- [Prerequisites](Developers-Prerequisites)
+- [Using Sous](Developers-Using-Sous)
+- [Getting Started](Developers-Getting-Started)
+- [CLI](Developers-CLI)
+- [REST API](Developers-REST-API)
+- [Clients](Developers-Clients)
 
-## Integration
-- [IAM with Tikti](IAM-with-Tikti)
-- [codeQ Protocol](codeQ-Protocol)
-- [Storage: KVRocks](Storage-KVRocks)
-- [ledgerDB Audit](ledgerDB-Audit)
+## Creating Functions
+- [JavaScript](Creating-Functions-JavaScript)
+- [Python](Creating-Functions-Python)
+- [WebAssembly](Creating-Functions-WebAssembly)
 
-## Interfaces
-- [REST API](REST-API)
-- [CLI](CLI)
-- [Schemas](Schemas)
+## Managing Functions
+- [Packages](Managing-Functions-Packages)
+- [Versioning and Aliases](Managing-Functions-Versioning-and-Aliases)
+- [Signing and SBOM](Managing-Functions-Signing-and-SBOM)
 
-## Operations
-- [Deployment: Kubernetes](Deployment-Kubernetes)
-- [Observability](Observability)
-- [Security](Security)
-- [Error Model](Error-Model)
-- [Runbooks](Runbooks)
-- [Migrations](Migrations)
-- [Testing](Testing)
-- [Capacity and Limits](Capacity-and-Limits)
-- [Security Checklist](Security-Checklist)
-- [Roadmap](Roadmap)
+## Event Sources
+- [HTTP](Event-Sources-HTTP)
+- [Schedule](Event-Sources-Schedule)
+- [Cadence Activities](Event-Sources-Cadence-Activities)
+- [Cadence Workflows](Event-Sources-Cadence-Workflows)
+- [codeQ Topics](Event-Sources-codeQ-Topics)
 
-## Use Cases
-- [Use Cases](Use-Cases)
-- [Local Dev, Publish, Promote](Use-Cases-Local-Dev-Publish-Promote)
-- [HTTP Invoke (Sync)](Use-Cases-HTTP-Invoke-Sync)
-- [Schedule Invoke](Use-Cases-Schedule-Invoke)
-- [Cadence Activity Invoke](Use-Cases-Cadence-Activity-Invoke)
-- [Audit a Control-Plane Mutation](Use-Cases-Audit-Control-Plane)
+## Enabled Services
+- [Tikti IAM](Enabled-Services-Tikti-IAM)
+- [KVRocks](Enabled-Services-KVRocks)
+- [codeQ](Enabled-Services-codeQ)
+- [Vault Secrets](Enabled-Services-Vault-Secrets)
+- [ledgerDB Audit](Enabled-Services-ledgerDB-Audit)
+
+## Sample Applications
+- [HTTP Handler](Sample-Applications-HTTP-Handler)
+- [Scheduled Job](Sample-Applications-Scheduled-Job)
+- [Cadence Activity](Sample-Applications-Cadence-Activity)
+- [Cadence Workflow](Sample-Applications-Cadence-Workflow)
+
+## Tutorial
+- [Local Dev to Publish](Tutorial-Local-Dev-to-Publish)
+- [Promote Through Aliases](Tutorial-Promote-Through-Aliases)
+- [Building a Workflow](Tutorial-Building-a-Workflow)
+
+## Development Tools
+- [Local Test](Development-Tools-Local-Test)
+- [Parity Harness](Development-Tools-Parity-Harness)
+- [Determinism Linter](Development-Tools-Determinism-Linter)
+
+## Contributors
+- [Project Structure](Contributors-Project-Structure)
+- [Resources](Contributors-Resources)
+- [What to Contribute](Contributors-What-to-Contribute)
+- [Adding a Runtime](Contributors-Adding-a-Runtime)
+
+## Operators
+- [Architecture](Operators-Architecture)
+- [Deployment: Kubernetes](Operators-Deployment-Kubernetes)
+- [Deployment: Docker Compose](Operators-Deployment-Docker-Compose)
+- [Administrative Operations](Operators-Administrative-Operations)
+- [Configuration Reference](Operators-Configuration-Reference)
+- [Observability](Operators-Observability)
+- [Security](Operators-Security)
+- [Runbooks](Operators-Runbooks)
+- [Capacity and Limits](Operators-Capacity-and-Limits)
+- [Migrations](Operators-Migrations)
+- [Resources](Operators-Resources)
+
+## Reference
+- [Glossary](Reference-Glossary)
+- [Schemas](Reference-Schemas)
+- [Error Codes](Reference-Error-Codes)
+- [Entity State Machines](Reference-Entity-State-Machines)
+- [Roadmap](Reference-Roadmap)
