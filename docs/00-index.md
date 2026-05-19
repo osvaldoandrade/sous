@@ -24,7 +24,6 @@
 ## Interfaces
 
 - `04-api-rest.md`
-- `05-cli.md`
 
 ## Operations
 

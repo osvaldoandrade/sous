@@ -23,7 +23,7 @@
 
 ## Interfaces
 - [REST API](REST-API)
-- [CLI](CLI)
+- [CLI](Developers-CLI)
 - [Schemas](Schemas)
 
 ## Operations
