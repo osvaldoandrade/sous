@@ -17,7 +17,7 @@
 
 ## Integration
 - [IAM with Tikti](IAM-with-Tikti)
-- [codeQ Protocol](codeQ-Protocol)
+- [Event Sources: codeQ Topics](Event-Sources-codeQ-Topics)
 - [Storage: KVRocks](Storage-KVRocks)
 - [ledgerDB Audit](ledgerDB-Audit)
 
