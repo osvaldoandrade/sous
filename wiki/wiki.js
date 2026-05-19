@@ -42,7 +42,14 @@ const NAV = [
       ["Schemas", "Schemas"],
       ["Error Model", "Error-Model"],
       ["Config Reference", "Config-Reference"],
-      ["Entity State Machines", "Entity-State-Machines"],
+    ],
+  },
+  {
+    section: "Managing Functions",
+    pages: [
+      ["Packages", "Managing-Functions-Packages"],
+      ["Versioning and Aliases", "Managing-Functions-Versioning-and-Aliases"],
+      ["Signing and SBOM", "Managing-Functions-Signing-and-SBOM"],
     ],
   },
   {

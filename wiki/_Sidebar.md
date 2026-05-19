@@ -26,6 +26,11 @@
 - [CLI](CLI)
 - [Schemas](Schemas)
 
+## Managing Functions
+- [Packages](Managing-Functions-Packages)
+- [Versioning and Aliases](Managing-Functions-Versioning-and-Aliases)
+- [Signing and SBOM](Managing-Functions-Signing-and-SBOM)
+
 ## Operations
 - [Deployment: Kubernetes](Deployment-Kubernetes)
 - [Observability](Observability)
