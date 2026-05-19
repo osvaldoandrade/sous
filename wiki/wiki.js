@@ -22,7 +22,7 @@ const NAV = [
     pages: [
       ["HTTP Invoke Path", "HTTP-Invoke-Path"],
       ["Scheduler", "Scheduler"],
-      ["Cadence Integration", "Cadence-Integration"],
+      ["Cadence Workflows", "Event-Sources-Cadence-Workflows"],
     ],
   },
   {

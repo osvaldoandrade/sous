@@ -13,7 +13,7 @@
 ## Triggers
 - [HTTP Invoke Path](HTTP-Invoke-Path)
 - [Scheduler](Scheduler)
-- [Cadence Integration](Cadence-Integration)
+- [Cadence Workflows](Event-Sources-Cadence-Workflows)
 
 ## Integration
 - [IAM with Tikti](IAM-with-Tikti)

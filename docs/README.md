@@ -59,4 +59,3 @@ Start with:
 Use:
 
 - `08-runtime-cs-js.md` to implement the JavaScript runner.
-- `12-cadence-integration.md` to implement Cadence long-poll and response mapping.
