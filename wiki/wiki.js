@@ -60,14 +60,12 @@ const NAV = [
     ],
   },
   {
-    section: "Use Cases",
+    section: "Sample Applications",
     pages: [
-      ["Use Cases", "Use-Cases"],
-      ["Local Dev, Publish, Promote", "Use-Cases-Local-Dev-Publish-Promote"],
-      ["HTTP Invoke (Sync)", "Use-Cases-HTTP-Invoke-Sync"],
-      ["Schedule Invoke", "Use-Cases-Schedule-Invoke"],
-      ["Cadence Activity Invoke", "Use-Cases-Cadence-Activity-Invoke"],
-      ["Audit a Control-Plane Mutation", "Use-Cases-Audit-Control-Plane"],
+      ["HTTP Handler", "Sample-Apps-HTTP-Handler"],
+      ["Scheduled Job", "Sample-Apps-Scheduled-Job"],
+      ["Cadence Activity", "Sample-Apps-Cadence-Activity"],
+      ["Cadence Workflow", "Sample-Apps-Cadence-Workflow"],
     ],
   },
 ];

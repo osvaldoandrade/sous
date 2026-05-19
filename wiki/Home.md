@@ -16,4 +16,8 @@ If you are evaluating SOUS end-to-end, the fastest reading path is:
 4. [Runtime: cs-js](Runtime-cs-js)
 5. [REST API](REST-API)
 
-For scenario-based behavior, read [Use Cases](Use-Cases).
+For end-to-end walk-throughs of complete functions, read the
+[HTTP Handler](Sample-Apps-HTTP-Handler),
+[Scheduled Job](Sample-Apps-Scheduled-Job),
+[Cadence Activity](Sample-Apps-Cadence-Activity), and
+[Cadence Workflow](Sample-Apps-Cadence-Workflow) samples.
