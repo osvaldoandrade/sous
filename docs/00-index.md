@@ -8,7 +8,6 @@
 ## Design
 
 - `03-architecture.md`
-- `06-storage-kvrocks.md`
 - `07-codeq-protocol.md`
 - `08-runtime-cs-js.md`
 - `08b-runtime-cs-wasm.md`

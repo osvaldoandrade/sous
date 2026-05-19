@@ -18,7 +18,7 @@
 ## Integration
 - [IAM with Tikti](IAM-with-Tikti)
 - [codeQ Protocol](codeQ-Protocol)
-- [Storage: KVRocks](Storage-KVRocks)
+- [Enabled Services: KVRocks](Enabled-Services-KVRocks)
 - [ledgerDB Audit](ledgerDB-Audit)
 
 ## Interfaces
