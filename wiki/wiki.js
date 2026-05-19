@@ -28,7 +28,7 @@ const NAV = [
   {
     section: "Integration",
     pages: [
-      ["IAM with Tikti", "IAM-with-Tikti"],
+      ["Enabled Services: Tikti IAM", "Enabled-Services-Tikti-IAM"],
       ["codeQ Protocol", "codeQ-Protocol"],
       ["Storage: KVRocks", "Storage-KVRocks"],
       ["ledgerDB Audit", "ledgerDB-Audit"],
