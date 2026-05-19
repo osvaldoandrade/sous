@@ -11,7 +11,7 @@
 - [Capabilities and Isolation](Concepts-Capabilities-and-Isolation)
 
 ## Triggers
-- [HTTP Invoke Path](HTTP-Invoke-Path)
+- [Event Sources: HTTP](Event-Sources-HTTP)
 - [Scheduler](Scheduler)
 - [Cadence Integration](Cadence-Integration)
 

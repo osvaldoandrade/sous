@@ -115,4 +115,4 @@ Invoke via HTTP gateway:
 ./bin/cs http invoke /v1/web/<tenant>/<namespace>/reconcile/prod -X POST -d @event.json
 ```
 
-If you want the full endpoint contract and its idempotency rules, see [HTTP Invoke Path](HTTP-Invoke-Path).
+If you want the full endpoint contract and its idempotency rules, see [Event Sources: HTTP](Event-Sources-HTTP).

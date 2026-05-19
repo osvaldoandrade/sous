@@ -14,7 +14,6 @@
 - `08b-runtime-cs-wasm.md`
 - `08c-runtime-cs-python.md`
 - `09-invoker-pool.md`
-- `10-http-invoke.md`
 - `11-scheduler.md`
 - `12-cadence-integration.md`
 - `13-iam-tikti.md`
