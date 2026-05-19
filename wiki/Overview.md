@@ -53,6 +53,6 @@ This forces a clean contract: a function cannot accidentally gain new power with
 If you want the system from first principles, read:
 
 1. [Architecture](Architecture)
-2. [Runtime: cs-js](Runtime-cs-js)
+2. [Creating Functions: JavaScript](Creating-Functions-JavaScript)
 3. [Invoker Pool](Invoker-Pool)
 4. [REST API](REST-API)

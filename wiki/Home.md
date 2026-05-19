@@ -13,7 +13,7 @@ If you are evaluating SOUS end-to-end, the fastest reading path is:
 1. [Get Started](Get-Started)
 2. [Overview](Overview)
 3. [Architecture](Architecture)
-4. [Runtime: cs-js](Runtime-cs-js)
+4. [Creating Functions: JavaScript](Creating-Functions-JavaScript)
 5. [REST API](REST-API)
 
 For scenario-based behavior, read [Use Cases](Use-Cases).

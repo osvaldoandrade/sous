@@ -13,7 +13,7 @@ const NAV = [
       ["Function Lifecycle", "Concepts-Function-Lifecycle"],
       ["Invocations and Activations", "Concepts-Invocations-and-Activations"],
       ["Capabilities and Isolation", "Concepts-Capabilities-and-Isolation"],
-      ["Runtime: cs-js", "Runtime-cs-js"],
+      ["Creating Functions: JavaScript", "Creating-Functions-JavaScript"],
       ["Invoker Pool", "Invoker-Pool"],
     ],
   },
