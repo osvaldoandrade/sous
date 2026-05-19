@@ -5,6 +5,11 @@
 - [Overview](Overview)
 - [Architecture](Architecture)
 
+## Tutorials
+- [From Local Dev to Publish](Tutorial-Local-Dev-to-Publish)
+- [Promote Through Aliases](Tutorial-Promote-Through-Aliases)
+- [Building a Workflow](Tutorial-Building-a-Workflow)
+
 ## Concepts
 - [Function Lifecycle](Concepts-Function-Lifecycle)
 - [Invocation and Activations](Concepts-Invocations-and-Activations)
