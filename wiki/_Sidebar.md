@@ -28,15 +28,18 @@
 
 ## Operations
 - [Deployment: Kubernetes](Deployment-Kubernetes)
-- [Observability](Observability)
-- [Security](Security)
 - [Error Model](Error-Model)
-- [Runbooks](Runbooks)
-- [Migrations](Migrations)
 - [Testing](Testing)
-- [Capacity and Limits](Capacity-and-Limits)
-- [Security Checklist](Security-Checklist)
 - [Roadmap](Roadmap)
+
+## Operators
+- [Configuration Reference](Operators-Configuration-Reference)
+- [Observability](Operators-Observability)
+- [Security](Operators-Security)
+- [Runbooks](Operators-Runbooks)
+- [Capacity and Limits](Operators-Capacity-and-Limits)
+- [Migrations](Operators-Migrations)
+- [Resources](Operators-Resources)
 
 ## Use Cases
 - [Use Cases](Use-Cases)
