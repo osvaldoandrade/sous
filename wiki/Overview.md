@@ -52,7 +52,7 @@ This forces a clean contract: a function cannot accidentally gain new power with
 
 If you want the system from first principles, read:
 
-1. [Architecture](Architecture)
+1. [Operators: Architecture](Operators-Architecture)
 2. [Runtime: cs-js](Runtime-cs-js)
-3. [Invoker Pool](Invoker-Pool)
+3. [Operators: Deployment (Kubernetes)](Operators-Deployment-Kubernetes)
 4. [REST API](REST-API)

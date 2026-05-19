@@ -3,7 +3,7 @@
 ## Start Here
 - [Get Started](Get-Started)
 - [Overview](Overview)
-- [Architecture](Architecture)
+- [Operators: Architecture](Operators-Architecture)
 
 ## Concepts
 - [Function Lifecycle](Concepts-Function-Lifecycle)
@@ -27,7 +27,10 @@
 - [Schemas](Schemas)
 
 ## Operations
-- [Deployment: Kubernetes](Deployment-Kubernetes)
+- [Operators: Architecture](Operators-Architecture)
+- [Operators: Deployment (Kubernetes)](Operators-Deployment-Kubernetes)
+- [Operators: Deployment (Docker Compose)](Operators-Deployment-Docker-Compose)
+- [Operators: Administrative Operations](Operators-Administrative-Operations)
 - [Observability](Observability)
 - [Security](Security)
 - [Error Model](Error-Model)
