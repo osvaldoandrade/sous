@@ -12,7 +12,7 @@
 
 ## Triggers
 - [HTTP Invoke Path](HTTP-Invoke-Path)
-- [Scheduler](Scheduler)
+- [Event Sources: Schedule](Event-Sources-Schedule)
 - [Cadence Integration](Cadence-Integration)
 
 ## Integration
