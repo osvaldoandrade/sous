@@ -1,8 +1,8 @@
 package main
 
 // Audit replay endpoint for cs-control. The wire contract is documented
-// in docs/14-observability.md ("Audit") and docs/13-iam-tikti.md
-// ("Actions": cs:audit:read).
+// in docs/14-observability.md ("Audit") and wiki/Enabled-Services-Tikti-IAM.md
+// ("Resource x action matrix": cs:audit:read).
 //
 // Tenant scoping is enforced by the existing authorize() helper which
 // rejects principals whose Tikti tenant claim does not match the URL
