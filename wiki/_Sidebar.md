@@ -2,13 +2,12 @@
 
 ## Start Here
 - [Get Started](Get-Started)
-- [Overview](Overview)
 - [Architecture](Architecture)
 
-## Concepts
-- [Function Lifecycle](Concepts-Function-Lifecycle)
-- [Invocation and Activations](Concepts-Invocations-and-Activations)
-- [Capabilities and Isolation](Concepts-Capabilities-and-Isolation)
+## Programming Model
+- [Functions](Programming-Model-Functions)
+- [Triggers and Schedules](Programming-Model-Triggers-and-Schedules)
+- [Workflows](Programming-Model-Workflows)
 
 ## Triggers
 - [HTTP Invoke Path](HTTP-Invoke-Path)

@@ -11,7 +11,7 @@ Start with [Get Started](Get-Started).
 If you are evaluating SOUS end-to-end, the fastest reading path is:
 
 1. [Get Started](Get-Started)
-2. [Overview](Overview)
+2. [Programming Model: Functions](Programming-Model-Functions)
 3. [Architecture](Architecture)
 4. [Runtime: cs-js](Runtime-cs-js)
 5. [REST API](REST-API)

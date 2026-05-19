@@ -3,16 +3,15 @@ const NAV = [
     section: "Start Here",
     pages: [
       ["Get Started", "Get-Started"],
-      ["Overview", "Overview"],
       ["Architecture", "Architecture"],
     ],
   },
   {
-    section: "Concepts",
+    section: "Programming Model",
     pages: [
-      ["Function Lifecycle", "Concepts-Function-Lifecycle"],
-      ["Invocations and Activations", "Concepts-Invocations-and-Activations"],
-      ["Capabilities and Isolation", "Concepts-Capabilities-and-Isolation"],
+      ["Functions", "Programming-Model-Functions"],
+      ["Triggers and Schedules", "Programming-Model-Triggers-and-Schedules"],
+      ["Workflows", "Programming-Model-Workflows"],
       ["Runtime: cs-js", "Runtime-cs-js"],
       ["Invoker Pool", "Invoker-Pool"],
     ],
