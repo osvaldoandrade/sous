@@ -1,6 +1,6 @@
 # Local Dev, Publish, Promote
 
-This flow is the core SOUS workflow for agent-generated functions: create locally, validate semantics with the same runtime, publish an immutable version, then promote traffic using an alias.
+This flow is the core SOUS workflow: create a function locally, validate semantics with the same runtime that runs in the cluster, publish an immutable version, then promote traffic by repointing an alias.
 
 ## Main flow
 
@@ -13,7 +13,7 @@ This flow is the core SOUS workflow for agent-generated functions: create locall
 
 ```mermaid
 sequenceDiagram
-  participant A as Agent/Developer
+  participant A as Developer
   participant CLI as cs CLI
   participant CP as cs-control
   participant KV as KVRocks

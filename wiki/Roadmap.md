@@ -19,7 +19,7 @@ This file lists post-v0.1 items.
 
 ## Observability
 
-- Add per-node decision tracing for agent trees.
+- Add per-node decision tracing for nested invocation graphs.
 - Add activation sampling controls.
 
 ## Security

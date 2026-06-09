@@ -1,8 +1,8 @@
 # Get Started
 
-This guide brings up a local SOUS stack, runs your first function with the CLI runtime, publishes it to the control plane, and invokes it through the HTTP gateway.
+This guide brings up a local SOUS stack, scaffolds a function, runs it with the local CLI runtime (same semantics as the cluster), publishes an immutable version, and invokes it through the HTTP gateway. The result is a working publish-and-invoke loop on your machine in under five minutes.
 
-SOUS is multi-service by design. In production you scale these components independently, but locally you can run them as separate processes on one machine.
+SOUS is multi-service by design. In production you scale these components independently; locally you can run them as separate processes on a single host.
 
 ## Prerequisites
 

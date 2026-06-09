@@ -1,7 +1,7 @@
 {
   "name": "@osvaldoandrade/cs",
   "version": "0.0.0-dev",
-  "description": "code-sous CLI (installs a prebuilt Go binary from GitHub Releases)",
+  "description": "code-sous CLI — a serverless functions runtime (installs a prebuilt Go binary from GitHub Releases)",
   "license": "MIT",
   "repository": {
     "type": "git",

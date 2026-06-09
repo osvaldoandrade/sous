@@ -5,10 +5,18 @@
 - [Overview](Overview)
 - [Architecture](Architecture)
 
-## Concepts
+## Core Concepts
 - [Function Lifecycle](Concepts-Function-Lifecycle)
-- [Invocation and Activations](Concepts-Invocations-and-Activations)
+- [Invocations and Activations](Concepts-Invocations-and-Activations)
 - [Capabilities and Isolation](Concepts-Capabilities-and-Isolation)
+- [Entity State Machines](Entity-State-Machines)
+- [Glossary](Glossary)
+
+## Interfaces
+- [REST API](REST-API)
+- [CLI](CLI)
+- [Config Reference](Config-Reference)
+- [JSON Schemas](JSON-Schemas)
 
 ## Triggers
 - [HTTP Invoke Path](HTTP-Invoke-Path)
@@ -16,26 +24,25 @@
 - [Cadence Integration](Cadence-Integration)
 
 ## Integration
-- [IAM with Tikti](IAM-with-Tikti)
 - [codeQ Protocol](codeQ-Protocol)
+- [IAM with Tikti](IAM-with-Tikti)
 - [Storage: KVRocks](Storage-KVRocks)
 - [ledgerDB Audit](ledgerDB-Audit)
 
-## Interfaces
-- [REST API](REST-API)
-- [CLI](CLI)
-- [Schemas](Schemas)
+## Development
+- [Runtime: cs-js](Runtime-cs-js)
+- [Testing](Testing)
 
 ## Operations
 - [Deployment: Kubernetes](Deployment-Kubernetes)
 - [Observability](Observability)
 - [Security](Security)
+- [Security Checklist](Security-Checklist)
+- [Capacity and Limits](Capacity-and-Limits)
 - [Error Model](Error-Model)
 - [Runbooks](Runbooks)
 - [Migrations](Migrations)
-- [Testing](Testing)
-- [Capacity and Limits](Capacity-and-Limits)
-- [Security Checklist](Security-Checklist)
+- [Requirements](Requirements)
 - [Roadmap](Roadmap)
 
 ## Use Cases

@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>sous | The Execution Layer for AI Agents</title>
-    <meta name="description" content="sous is a high-performance function execution layer for agent-built automation. Secure sandboxing, immutable versions, and multi-tenant isolation.">
+    <title>sous | Serverless Functions Runtime</title>
+    <meta name="description" content="sous is a serverless functions runtime. Publish functions as plain text, invoke them over HTTP, schedules, or Cadence Activities. Capability-gated sandbox, immutable versions, multi-tenant isolation.">
     <meta name="theme-color" content="#020617">
 
     <!-- Open Graph -->
     <meta property="og:type" content="website">
-    <meta property="og:title" content="sous | The Execution Layer for AI Agents">
-    <meta property="og:description" content="Secure and scalable function execution fabric for autonomous agents.">
+    <meta property="og:title" content="sous | Serverless Functions Runtime">
+    <meta property="og:description" content="Publish functions as text. Invoke over HTTP, on a schedule, or as a Cadence Activity. Capability-gated, codeQ-buffered, multi-tenant.">
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -162,12 +162,12 @@
 
         <div class="container mx-auto px-4 text-center relative z-10">
             <h1 class="text-4xl md:text-7xl font-display font-bold leading-none mb-6 text-white tracking-tight reveal">
-                The Execution Layer for <br><span class="text-brand-primary glow-text">AI Agents</span>.
+                Serverless functions,<br><span class="text-brand-primary glow-text">without the build step</span>.
             </h1>
             
             <p class="text-lg text-brand-muted max-w-2xl mx-auto mb-10 font-sans reveal" style="transition-delay: 100ms;">
-                Secure, multi-tenant function execution for autonomous automation. <br class="hidden md:block" />
-                No build steps, immutable versions, and granular capability-based sandboxing.
+                Publish functions as plain UTF-8 text. Invoke them over HTTP, on a schedule, or as Cadence Activities. <br class="hidden md:block" />
+                codeQ buffers between ingress and execution, so trigger loops and user code scale independently.
             </p>
         </div>
     </header>
@@ -281,14 +281,14 @@
         <!-- SECTION: INITIALIZATION -->
         <section id="get-started" class="container mx-auto px-4 reveal">
             <div class="text-center mb-12">
-                <h2 class="text-2xl md:text-3xl font-display font-bold mb-2 text-white uppercase tracking-tight">Agent Workflow</h2>
+                <h2 class="text-2xl md:text-3xl font-display font-bold mb-2 text-white uppercase tracking-tight">Function Workflow</h2>
                 <div class="h-1 w-10 bg-brand-primary mx-auto"></div>
             </div>
 
             <div class="max-w-6xl mx-auto">
                 <div class="border border-brand-border bg-black shadow-2xl">
                     <div class="flex border-b border-brand-border bg-brand-surface overflow-x-auto">
-                        <button onclick="switchTab('cli')" id="btn-cli" class="px-6 py-3 text-xs font-bold text-white bg-black border-t-2 border-brand-primary tracking-wider transition-all">CLI (AGENT)</button>
+                        <button onclick="switchTab('cli')" id="btn-cli" class="px-6 py-3 text-xs font-bold text-white bg-black border-t-2 border-brand-primary tracking-wider transition-all">CLI</button>
                         <button onclick="switchTab('js')" id="btn-js" class="px-6 py-3 text-xs font-bold text-brand-muted hover:text-white hover:bg-black/50 tracking-wider transition-all">FUNCTION.JS</button>
                         <button onclick="switchTab('manifest')" id="btn-manifest" class="px-6 py-3 text-xs font-bold text-brand-muted hover:text-white hover:bg-black/50 tracking-wider transition-all">MANIFEST.JSON</button>
                     </div>
@@ -314,9 +314,9 @@
                     </div>
 
                     <div id="content-js" class="p-6 bg-black font-mono text-xs overflow-x-auto h-[350px] text-brand-text hidden">
-<pre><code class="language-js"><span class="text-brand-muted">// Agent-generated automation: reconcile.js</span>
+<pre><code class="language-js"><span class="text-brand-muted">// reconcile.js — published as text, invoked via alias</span>
 <span class="text-brand-primary">export default async function</span>(event, context) {
-  <span class="text-brand-muted">// 1. Destructure input from the agent task</span>
+  <span class="text-brand-muted">// 1. Destructure the invocation event</span>
   <span class="text-brand-primary">const</span> { orderId, expectedTotal } = event;
 
   <span class="text-brand-muted">// 2. Execute side-effect (requires capability)</span>
@@ -423,7 +423,7 @@
                         <span class="transition group-open:rotate-180"><i class="fa-solid fa-chevron-down text-brand-primary"></i></span>
                     </summary>
                     <div class="text-brand-muted text-sm leading-relaxed px-5 pb-5 pt-0 border-t border-brand-border font-sans mt-4">
-                        Unlike traditional serverless platforms that require Docker builds or compilation, <strong>sous</strong> accepts function code as plain UTF-8 text. This allows agents to generate, upload, and execute code in seconds without CI/CD overhead.
+                        Unlike traditional serverless platforms that require Docker builds or compilation, <strong>sous</strong> accepts function code as plain UTF-8 text and a JSON manifest. Publish is a write — no container registry, no language toolchain, no CI wait. The same property makes sous suitable for programmatic publishing pipelines that emit code at runtime.
                     </div>
                 </details>
 
@@ -486,9 +486,9 @@
                         <span class="font-bold text-lg text-white tracking-widest uppercase">sous</span>
                     </div>
                     <p class="text-brand-muted max-w-sm mb-4">
-                        The secure execution fabric for agent-built automation. Immutable, isolated, and scalable.
+                        A serverless functions runtime with codeQ as the durable buffer. Immutable versions, capability-gated execution, runtime parity from CLI to cluster.
                     </p>
-                    <p class="text-brand-primary">Built for the Agentic Era.</p>
+                    <p class="text-brand-primary">A serverless functions runtime for everything you trigger.</p>
                 </div>
                 
                 <div>
@@ -531,9 +531,9 @@
                 {
                     title: "1. Function Publish",
                     tag: "DEVELOPMENT",
-                    content: "The Agent uses the CLI <code>cs fn publish</code> to send the code bundle and manifest to <strong>cs-control</strong>. No build step is required; the code is sent as plain text.",
-                    nodes: ["node-agent", "node-control"],
-                    links: [["node-agent", "node-control"]]
+                    content: "A developer (or an automated pipeline) uses <code>cs fn publish</code> to send the bundle and manifest to <strong>cs-control</strong>. No build step is required; code ships as plain text.",
+                    nodes: ["node-cli", "node-control"],
+                    links: [["node-cli", "node-control"]]
                 },
                 {
                     title: "2. Immutable Registry",
@@ -632,7 +632,7 @@
                 <div class="flex flex-col items-center justify-center h-full text-center space-y-8 animate-[fade-in_0.5s_ease-out]">
                     <div class="relative"><div class="absolute inset-0 bg-emerald-500/20 blur-xl rounded-full"></div><div class="relative w-20 h-20 bg-[#0f172a] rounded-full flex items-center justify-center border border-emerald-500/50 text-emerald-400"><i class="fa-solid fa-microchip text-3xl"></i></div></div>
                     <div><h2 class="text-2xl font-bold text-white font-display mb-2">Platform Trace</h2><p class="text-emerald-500 font-mono text-xs tracking-[0.2em] uppercase">Status: Ready</p></div>
-                    <p class="text-slate-400 text-sm leading-relaxed max-w-xs mx-auto">Visualizing the lifecycle of an agent function from publish to execution.</p>
+                    <p class="text-slate-400 text-sm leading-relaxed max-w-xs mx-auto">Visualizing the lifecycle of a function from publish to invocation.</p>
                     <button onclick="window.parent.startArchTrace()" class="group relative px-8 py-4 bg-emerald-950/50 text-emerald-400 font-mono text-sm font-bold tracking-widest rounded border border-emerald-500/30 hover:bg-emerald-500 hover:text-white hover:border-emerald-400 transition-all overflow-hidden"><span class="relative z-10">START TRACE</span><div class="absolute inset-0 h-full w-full bg-emerald-500/10 scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-500"></div></button>
                 </div>
             </div>
@@ -649,7 +649,7 @@
             <div class="absolute inset-0 opacity-20 pointer-events-none" style="background-image: radial-gradient(#1e293b 1px, transparent 1px); background-size: 30px 30px;"></div>
             <svg class="absolute inset-0 w-full h-full pointer-events-none z-0" id="connector-layer"></svg>
             <div class="arch-grid w-full h-full relative z-10">
-                <div id="node-agent" class="glass-panel rounded-xl p-5 border-t-4 border-t-amber-500"><div><div class="label-micro text-amber-400">DEVELOPER INTERFACE</div><div class="text-lg font-bold text-white"><i class="fa-solid fa-terminal node-icon text-amber-500"></i> AGENT CLI</div></div><div class="text-xs text-slate-400 font-mono bg-black/20 p-2 rounded">cs fn publish<br>Manifest + Bundle</div></div>
+                <div id="node-cli" class="glass-panel rounded-xl p-5 border-t-4 border-t-amber-500"><div><div class="label-micro text-amber-400">DEVELOPER INTERFACE</div><div class="text-lg font-bold text-white"><i class="fa-solid fa-terminal node-icon text-amber-500"></i> cs CLI</div></div><div class="text-xs text-slate-400 font-mono bg-black/20 p-2 rounded">cs fn publish<br>Manifest + Bundle</div></div>
                 <div id="node-control" class="glass-panel rounded-xl p-5 border-t-4 border-t-emerald-500 scale-105 z-20 shadow-xl bg-slate-900/80"><div><div class="label-micro text-emerald-400">CS-CONTROL</div><div class="text-2xl font-bold text-white"><i class="fa-solid fa-gauge-high node-icon text-emerald-500"></i> CONTROL PLANE</div></div><div class="grid grid-cols-2 gap-2 mt-2"><div class="text-[10px] bg-slate-800 p-1 rounded text-center text-slate-300">Policy</div><div class="text-[10px] bg-slate-800 p-1 rounded text-center text-slate-300">Versions</div></div></div>
                 <div id="node-registry" class="glass-panel rounded-xl p-5 border-t-4 border-t-cyan-500"><div><div class="label-micro text-cyan-400">IMMUTABLE STORE</div><div class="text-lg font-bold text-white"><i class="fa-solid fa-box-archive node-icon text-cyan-500"></i> REGISTRY</div></div><div class="text-xs text-slate-400 font-mono bg-black/20 p-2 rounded text-right">Bundles / Pointers<br>Tenant-Isolated</div></div>
                 <div id="node-ingress" class="glass-panel rounded-xl p-5 border-l-4 border-l-amber-500"><div class="flex justify-between items-start"><div><div class="label-micro text-amber-500">INGRESS GATEWAYS</div><div class="text-lg font-bold text-white">TRIGGERS</div></div><i class="fa-solid fa-bolt text-amber-500 opacity-50"></i></div><div class="space-y-1 mt-2 font-mono text-[9px] text-slate-400"><div class="flex justify-between"><span>HTTP</span> <span class="text-emerald-500">cs-http</span></div><div class="flex justify-between"><span>Schedule</span> <span class="text-emerald-500">cs-sched</span></div><div class="flex justify-between"><span>Cadence</span> <span class="text-emerald-500">cs-poller</span></div></div></div>

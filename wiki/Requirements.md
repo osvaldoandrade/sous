@@ -4,17 +4,15 @@ This document defines product scope as invariants.
 
 ## Product intent
 
-Agents create functions to close a task loop.
+SOUS implements a serverless function loop:
 
-A task loop looks like this:
+1. A producer authors a function (as `function.js` + `manifest.json` text).
+2. The producer runs the function locally with the `cs` CLI to validate semantics.
+3. The producer uploads a draft and publishes an immutable version.
+4. A trigger (HTTP, schedule, or Cadence) invokes the published version.
+5. The runtime executes the function under its declared capabilities and persists an activation record.
 
-1. An agent receives a task.
-2. The agent generates a function that encodes the task logic.
-3. The agent runs the function locally with the `cs` CLI.
-4. The agent publishes the function to the cluster.
-5. The agent invokes the published function through HTTP, schedule, or Cadence.
-
-The platform exists to reduce friction in steps 3 to 5.
+The platform exists to reduce friction in steps 2 through 5. Producers may be humans, CI pipelines, or programmatic agents — SOUS does not assume which.
 
 ## Core invariants
 

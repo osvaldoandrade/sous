@@ -2,7 +2,7 @@
 
 This document defines the JavaScript runtime contract.
 
-The runtime exists to execute code that an agent can produce and publish as text.
+The runtime exists to execute code that is published as text — without a build step, without a container image. It is the same engine the CLI uses locally, so behavior in the cluster matches the developer loop on disk.
 
 ## Runtime shape
 

@@ -1,8 +1,8 @@
 # Overview
 
-SOUS is a serverless execution layer built for agent-generated automation. Like mature serverless platforms, it gives you a stable runtime contract, multiple trigger types, and a clear isolation boundary. Unlike many platforms, SOUS intentionally optimizes for "functions as text" and deterministic parity between local execution (CLI) and cluster execution (invoker pool).
+SOUS is a serverless functions runtime. Producers register function versions and invoke them through one of three trigger families: HTTP gateway, fixed-interval scheduler, or Cadence Activity poller. The same execution fabric — `cs-invoker-pool` — services all three. Activations are persistent, capability checks are enforced per invocation, and version history is immutable by construction.
 
-The product intent is simple: an agent receives a task, generates a small function that encodes the task logic, runs that function locally to validate behavior, publishes it to the cluster, and invokes it through a trigger that matches the workflow (HTTP, schedule, or Cadence).
+The platform optimizes for two properties that traditional FaaS systems treat as accidental: "functions as text" (no build step at publish time) and deterministic parity between local execution (`cs` CLI) and cluster execution. Producers may be developers, CI pipelines, or programmatic agents — SOUS makes no assumption about which.
 
 ## The Function Contract
 

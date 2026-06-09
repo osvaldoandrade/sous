@@ -8,4 +8,4 @@ Every trigger (HTTP, schedule, Cadence) ultimately produces the same `Invocation
 
 That uniformity is what makes the platform composable: triggers can evolve without changing execution semantics.
 
-For the exact message schemas, see [Schemas](Schemas).
+For the exact message schemas, see [JSON Schemas](JSON-Schemas).
